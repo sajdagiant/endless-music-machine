@@ -23,14 +23,65 @@
   }
 
   // ---------- audio start ----------
+  // iOS Safari: AudioContext must be created/resumed synchronously inside a user gesture,
+  // and Web Audio is muted by the ringer switch unless the page is on the "playback" audio session
+  // (navigator.audioSession) or an HTML media element is playing.
+  const AC = window.AudioContext || window.webkitAudioContext;
+  let keepAlive = null;
+  function silentWavURL() {
+    const sr = 8000, n = sr, b = new ArrayBuffer(44 + n * 2), v = new DataView(b);
+    const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+    w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true);
+    v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true);
+    v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+    for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, i & 1 ? 1 : -1, true); // inaudible, not digital zero
+    return URL.createObjectURL(new Blob([b], { type: 'audio/wav' }));
+  }
+  function unlockIOS() {
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
+    try {
+      if (!keepAlive) {
+        keepAlive = document.createElement('audio');
+        keepAlive.src = silentWavURL(); keepAlive.loop = true; keepAlive.preload = 'auto';
+        keepAlive.setAttribute('playsinline', ''); keepAlive.setAttribute('x-webkit-airplay', 'deny');
+        keepAlive.volume = 1; keepAlive.style.display = 'none';
+        document.body.appendChild(keepAlive);
+      }
+      const p = keepAlive.play(); if (p && p.catch) p.catch(() => {});
+    } catch (e) {}
+  }
+  function unlockCtx() {
+    // silent one-sample buffer, started synchronously in the gesture
+    try {
+      const b = ctx.createBuffer(1, 1, 22050), s = ctx.createBufferSource();
+      s.buffer = b; s.connect(ctx.destination); s.start(0);
+    } catch (e) {}
+    try { const p = ctx.resume(); if (p && p.catch) p.catch(() => {}); } catch (e) {}
+  }
+  function revive() {
+    if (!ctx || !playing) return;
+    if (ctx.state !== 'running') { try { const p = ctx.resume(); if (p && p.catch) p.catch(() => {}); } catch (e) {} }
+    if (keepAlive && keepAlive.paused) { const p = keepAlive.play(); if (p && p.catch) p.catch(() => {}); }
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) revive(); });
+  addEventListener('pageshow', revive);
+  addEventListener('focus', revive);
+  // any later tap also re-resumes (iOS can interrupt after calls/Siri/lock)
+  ['touchend', 'click'].forEach(ev => document.addEventListener(ev, () => { if (ctx && playing && ctx.state !== 'running') revive(); }, true));
+  setInterval(() => { if (ctx && playing && ctx.state !== 'running') revive(); }, 1000);
+
   function start() {
-    if (started) return; started = true;
-    const AC = window.AudioContext || window.webkitAudioContext;
+    if (started) return;
+    if (!AC) return toast('Web Audio not supported in this browser');
+    started = true;
+    unlockIOS();
     ctx = new AC({ latencyHint: 'interactive' });
+    unlockCtx();
+    ctx.onstatechange = () => { if (playing && ctx.state !== 'running' && ctx.state !== 'closed') revive(); };
     eng = new MM.Engine(ctx, { mood: $('mood').value / 100, onEvent: (type, time, data) => events.push({ type, time, data }) });
-    recDest = ctx.createMediaStreamDestination();
+    try { recDest = ctx.createMediaStreamDestination(); } catch (e) { recDest = null; }
     eng.out.connect(ctx.destination);
-    eng.out.connect(recDest);
+    if (recDest) eng.out.connect(recDest);
     freq = new Uint8Array(eng.analyser.frequencyBinCount);
     wave = new Uint8Array(eng.analyser.fftSize);
     eng.start();
@@ -39,8 +90,9 @@
       const url = URL.createObjectURL(new Blob(['setInterval(()=>postMessage(0),25)'], { type: 'text/javascript' }));
       worker = new Worker(url); worker.onmessage = tick;
     } catch (e) { setInterval(tick, 25); }
-    ctx.resume();
+    unlockCtx();
     playing = true;
+    tick();
     $('start').style.display = 'none';
     $('play').textContent = 'Pause';
     window.__mm = { eng, ctx, V };
@@ -63,8 +115,8 @@
   // ---------- controls ----------
   function togglePlay() {
     if (!started) return start();
-    if (playing) { ctx.suspend(); playing = false; $('play').textContent = 'Play'; }
-    else { ctx.resume(); playing = true; $('play').textContent = 'Pause'; }
+    if (playing) { ctx.suspend(); playing = false; if (keepAlive) keepAlive.pause(); $('play').textContent = 'Play'; }
+    else { unlockIOS(); ctx.resume(); playing = true; $('play').textContent = 'Pause'; }
   }
   function newGenre() {
     if (!started) start();
@@ -74,6 +126,7 @@
     if (!playing) togglePlay();
   }
   $('start').addEventListener('click', start);
+  $('start').addEventListener('touchend', e => { e.preventDefault(); start(); }, { passive: false });
   $('play').addEventListener('click', togglePlay);
   $('new').addEventListener('click', newGenre);
   $('mood').addEventListener('input', e => { if (eng) eng.mood = e.target.value / 100; });
@@ -93,7 +146,7 @@
     if (!started) start();
     const btn = $('rec');
     if (rec) { rec.stop(); return; }
-    if (typeof MediaRecorder === 'undefined') return toast('Recording not supported here');
+    if (typeof MediaRecorder === 'undefined' || !recDest) return toast('Recording not supported here');
     let stream = recDest.stream, withVideo = false;
     try {
       const vs = cv.captureStream(30);
