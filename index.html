@@ -4,65 +4,101 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Endless Music Machine</title>
-<meta name="theme-color" content="#05050a">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23ff2d95'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%2305050a'/%3E%3C/svg%3E">
+<meta name="theme-color" content="#07080c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23c9a7ff'/%3E%3Cstop offset='1' stop-color='%23ffb27a'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='16' cy='16' r='14' fill='url(%23g)'/%3E%3Ccircle cx='16' cy='16' r='5.5' fill='%2307080c'/%3E%3C/svg%3E">
 <style>
-:root{--h:320;--a:hsl(var(--h) 100% 62%);--b:hsl(calc(var(--h) + 150) 100% 62%)}
+:root{
+  --bg:#07080c;--c1:hsl(266 70% 76%);--c2:hsl(22 88% 72%);--c3:hsl(48 85% 80%);--c1a:hsl(266 70% 76% / .18);
+  --ink:#f5f2ee;--dim:rgba(245,242,238,.64);--faint:rgba(245,242,238,.38);
+  --glass:rgba(22,22,30,.5);--glass2:rgba(255,255,255,.06);--line:rgba(255,255,255,.13);--on:#0b0a10;
+  --font:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Inter","Segoe UI",Roboto,"Helvetica Neue",system-ui,sans-serif;
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
+}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{margin:0;height:100%;background:#05050a;color:#f4f1ff;font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;overflow:hidden}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:var(--font);overflow:hidden;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;overscroll-behavior:none;touch-action:manipulation}
 canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
-#ui{position:fixed;inset:0;display:flex;flex-direction:column;justify-content:space-between;padding:max(16px,env(safe-area-inset-top)) 16px max(16px,env(safe-area-inset-bottom));pointer-events:none}
-#ui>*{pointer-events:auto}
-header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;font-size:11px;letter-spacing:.18em;text-transform:uppercase;opacity:.85}
-header .brand{opacity:.6}
-#section{padding:4px 10px;border:1px solid #fff3;border-radius:99px;backdrop-filter:blur(6px);background:#0006}
-#center{text-align:center;pointer-events:none;margin-top:27vh}
-#genre{font-family:"Arial Black",Impact,system-ui,sans-serif;font-weight:900;font-size:clamp(30px,8vw,92px);line-height:.95;text-transform:uppercase;letter-spacing:-.02em;margin:0;
- background:linear-gradient(95deg,var(--a),var(--b));-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 0 24px hsl(var(--h) 100% 55% / .5));transition:opacity .4s,transform .4s}
-#genre.swap{opacity:0;transform:scale(.96) translateY(6px)}
-#meta{margin-top:14px;font-size:12px;letter-spacing:.16em;text-transform:uppercase;opacity:.75;display:flex;gap:10px 18px;justify-content:center;flex-wrap:wrap}
-#meta b{color:var(--b);font-weight:600}
-#controls{display:flex;flex-direction:column;align-items:center;gap:14px}
-.row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;align-items:center}
-button{font:inherit;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#fff;background:#0b0b18cc;border:1px solid #fff4;border-radius:14px;padding:13px 18px;cursor:pointer;backdrop-filter:blur(8px);transition:.15s;min-height:46px}
-button:hover{border-color:var(--a);box-shadow:0 0 18px hsl(var(--h) 100% 60% / .45)}
-button:active{transform:scale(.96)}
-button.primary{background:linear-gradient(95deg,var(--a),var(--b));border:0;color:#08060f;font-weight:800;min-width:120px}
-button.rec.on{background:#ff2040;border-color:#ff2040;animation:pulse 1s infinite}
-@keyframes pulse{50%{box-shadow:0 0 22px #ff2040}}
-.mood{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.16em;text-transform:uppercase;opacity:.9;background:#0b0b18aa;border:1px solid #fff2;border-radius:14px;padding:8px 14px;backdrop-filter:blur(8px)}
-input[type=range]{-webkit-appearance:none;appearance:none;width:min(46vw,240px);height:4px;border-radius:9px;background:linear-gradient(90deg,var(--b),var(--a));outline:none}
-input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 0 14px var(--a)}
-input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radius:50%;background:#fff;box-shadow:0 0 14px var(--a)}
-#hint{font-size:10px;opacity:.45;letter-spacing:.14em;text-transform:uppercase;text-align:center}
-#start{-webkit-tap-highlight-color:transparent;position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;background:radial-gradient(circle at 50% 45%,#1a0b2e,#05050a 70%);z-index:10;cursor:pointer;text-align:center;padding:20px}
-#start h1{font-family:"Arial Black",Impact,system-ui,sans-serif;font-size:clamp(38px,11vw,120px);line-height:.9;margin:0;text-transform:uppercase;background:linear-gradient(95deg,#ff2d95,#27e3ff);-webkit-background-clip:text;background-clip:text;color:transparent}
-#start p{margin:0;letter-spacing:.3em;font-size:12px;text-transform:uppercase;opacity:.7}
-#start .go{width:96px;height:96px;border-radius:50%;background:linear-gradient(135deg,#ff2d95,#27e3ff);display:grid;place-items:center;box-shadow:0 0 60px #ff2d9588;animation:pulse2 1.6s infinite}
-#start .go:after{content:"";border-left:28px solid #08060f;border-top:17px solid transparent;border-bottom:17px solid transparent;margin-left:8px}
-@keyframes pulse2{50%{transform:scale(1.08)}}
-#toast{position:fixed;left:50%;bottom:110px;transform:translateX(-50%);background:#000c;border:1px solid #fff3;padding:8px 14px;border-radius:10px;font-size:12px;opacity:0;transition:.3s;pointer-events:none}
-#toast.show{opacity:1}
-@media (max-width:520px){button{padding:12px 13px;font-size:11px}#center{margin-top:30vh}}
+#pad{position:fixed;inset:0;z-index:1;display:block}
+#pad input{position:absolute;width:1px;height:1px;margin:0;visibility:hidden}
+#ui{position:fixed;inset:0;z-index:2;display:flex;flex-direction:column;justify-content:space-between;padding:max(14px,env(safe-area-inset-top)) 18px max(18px,env(safe-area-inset-bottom));pointer-events:none}
+#ui>*{pointer-events:none}
+#ui button,#ui .mood,#ui .chipbtn,#section{pointer-events:auto}
+header{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:12px;font-weight:600;letter-spacing:.08em}
+header .brand{color:var(--dim);display:flex;align-items:center;gap:8px}
+header .brand i{width:9px;height:9px;border-radius:50%;background:linear-gradient(135deg,var(--c1),var(--c2));box-shadow:0 0 14px var(--c1)}
+#section{display:flex;align-items:center;gap:8px;padding:6px 12px;border:1px solid var(--line);border-radius:99px;backdrop-filter:blur(14px) saturate(140%);-webkit-backdrop-filter:blur(14px) saturate(140%);background:var(--glass);font-size:11px;font-weight:650;letter-spacing:.12em;text-transform:uppercase;color:var(--ink)}
+#section:before{content:"";width:6px;height:6px;border-radius:50%;background:var(--c3);box-shadow:0 0 10px var(--c3)}
+#center{text-align:center;margin-top:min(33vh,300px);padding:0 4px}
+#genre{font-weight:720;font-size:clamp(30px,8.6vw,76px);line-height:1.02;letter-spacing:-.04em;margin:0;text-wrap:balance;
+ background:linear-gradient(100deg,var(--c1),var(--c2));-webkit-background-clip:text;background-clip:text;color:transparent;transition:opacity .45s,transform .45s,filter .45s;filter:drop-shadow(0 6px 28px var(--c1a))}
+#genre.swap{opacity:0;transform:translateY(8px);filter:blur(6px)}
+#persona{margin-top:10px;font-size:13px;font-weight:500;color:var(--c3);letter-spacing:.01em;min-height:1.3em;opacity:.92}
+#meta{margin-top:12px;display:flex;gap:6px;justify-content:center;flex-wrap:wrap}
+#meta span{font-family:var(--mono);font-size:11px;font-weight:500;letter-spacing:.04em;color:var(--dim);padding:5px 10px;border:1px solid var(--line);border-radius:99px;background:var(--glass2);font-variant-numeric:tabular-nums}
+#meta b{color:var(--ink);font-weight:650}
+#controls{display:flex;flex-direction:column;align-items:center;gap:12px}
+.row{display:flex;gap:10px;justify-content:center;align-items:center;width:100%}
+button,.chipbtn{position:relative;font:inherit;font-size:14px;font-weight:620;letter-spacing:.01em;color:var(--ink);background:var(--glass);border:1px solid var(--line);border-radius:99px;padding:0 20px;cursor:pointer;backdrop-filter:blur(16px) saturate(140%);-webkit-backdrop-filter:blur(16px) saturate(140%);transition:transform .15s,border-color .2s,background .2s,box-shadow .2s;min-height:50px;display:inline-flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap}
+button:hover,.chipbtn:hover{border-color:color-mix(in srgb,var(--c1) 70%,transparent)}
+button:active,.chipbtn:active{transform:scale(.965)}
+button.primary{flex:1.1;max-width:180px;background:linear-gradient(100deg,var(--c1),var(--c2));border:0;color:var(--on);font-weight:750;box-shadow:0 8px 30px -8px var(--c1)}
+#new{flex:1;max-width:200px}
+.row.small{gap:8px}
+.row.small button,.row.small .chipbtn{min-height:42px;font-size:12.5px;padding:0 14px;color:var(--dim)}
+button.rec.on{background:hsl(352 80% 62%);border-color:transparent;color:#fff;animation:pulse 1.2s infinite}
+@keyframes pulse{50%{box-shadow:0 0 24px hsl(352 80% 62% / .7)}}
+.chipbtn{cursor:pointer;user-select:none;-webkit-user-select:none}
+.chipbtn input{margin:0;accent-color:var(--c1);width:38px;height:23px;flex:none}
+@supports not (appearance:switch){
+ .chipbtn input{-webkit-appearance:none;appearance:none;width:40px;height:24px;border-radius:99px;background:rgba(255,255,255,.16);position:relative;transition:background .2s;border:0}
+ .chipbtn input:after{content:"";position:absolute;left:3px;top:3px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.4);transition:transform .2s}
+ .chipbtn input:checked{background:var(--c1)}
+ .chipbtn input:checked:after{transform:translateX(16px)}
+}
+.chipbtn:has(input:checked){color:var(--ink);border-color:color-mix(in srgb,var(--c1) 60%,transparent)}
+.mood{width:100%;max-width:420px;display:flex;align-items:center;gap:12px;font-size:11px;font-weight:650;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);background:var(--glass);border:1px solid var(--line);border-radius:99px;padding:10px 18px;backdrop-filter:blur(16px) saturate(140%);-webkit-backdrop-filter:blur(16px) saturate(140%)}
+input[type=range]{-webkit-appearance:none;appearance:none;flex:1;min-width:0;height:28px;background:transparent;outline:none;margin:0}
+input[type=range]::-webkit-slider-runnable-track{height:5px;border-radius:9px;background:linear-gradient(90deg,var(--c2),var(--c1));opacity:.9}
+input[type=range]::-moz-range-track{height:5px;border-radius:9px;background:linear-gradient(90deg,var(--c2),var(--c1))}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:26px;height:26px;margin-top:-10.5px;border-radius:50%;background:#fff;border:0;box-shadow:0 2px 12px rgba(0,0,0,.45),0 0 0 5px var(--c1a)}
+input[type=range]::-moz-range-thumb{width:26px;height:26px;border:0;border-radius:50%;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.45),0 0 0 5px var(--c1a)}
+#hint{font-size:11px;color:var(--faint);letter-spacing:.04em;text-align:center;min-height:1.2em}
+#start{position:fixed;inset:0;z-index:10;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px;background:radial-gradient(120% 90% at 50% 38%,hsl(266 40% 13%),#07080c 68%);cursor:pointer;text-align:center;padding:24px}
+#start h1{font-weight:740;font-size:clamp(44px,13vw,128px);line-height:.94;letter-spacing:-.045em;margin:0;background:linear-gradient(100deg,#d3b6ff,#ffb98a);-webkit-background-clip:text;background-clip:text;color:transparent}
+#start p{margin:0;font-size:13px;font-weight:500;letter-spacing:.06em;color:var(--dim)}
+#start .go{width:92px;height:92px;border-radius:50%;background:linear-gradient(135deg,#d3b6ff,#ffb98a);display:grid;place-items:center;box-shadow:0 14px 60px -10px #c9a7ffaa;animation:pulse2 2.2s ease-in-out infinite}
+#start .go:after{content:"";border-left:26px solid #0b0a10;border-top:16px solid transparent;border-bottom:16px solid transparent;margin-left:8px}
+@keyframes pulse2{50%{transform:scale(1.07)}}
+#start .chipbtn{min-height:44px;font-size:13px;color:var(--dim)}
+#toast{position:fixed;left:50%;bottom:calc(max(18px,env(safe-area-inset-bottom)) + 232px);transform:translate(-50%,6px);z-index:5;background:rgba(14,14,20,.78);border:1px solid var(--line);padding:9px 16px;border-radius:99px;font-size:12.5px;font-weight:600;letter-spacing:.02em;opacity:0;transition:.35s;pointer-events:none;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);white-space:nowrap}
+#toast.show{opacity:1;transform:translate(-50%,0)}
+@media (max-width:520px){.row.small button,.row.small .chipbtn{padding:0 11px}#center{margin-top:min(33vh,300px)}}
+@media (hover:none){#hint .kbd{display:none}}
+@media (max-height:860px){#hint{display:none}}
 </style>
 </head>
 <body>
 <canvas id="cv"></canvas>
+<label id="pad" aria-hidden="true"><input type="checkbox" switch tabindex="-1"></label>
 <div id="ui">
-  <header><span class="brand">∞ Endless Music Machine</span><span id="section">—</span></header>
-  <div id="center"><h1 id="genre">&nbsp;</h1><div id="meta"></div></div>
+  <header><span class="brand"><i></i>Endless Music Machine</span><span id="section">—</span></header>
+  <div id="center"><h1 id="genre">&nbsp;</h1><div id="persona"></div><div id="meta"></div></div>
   <div id="controls">
     <div class="mood"><span>Chill</span><input id="mood" type="range" min="0" max="100" value="55" aria-label="Mood"><span>Intense</span></div>
     <div class="row">
       <button id="play" class="primary">Pause</button>
-      <button id="new">⟳ New genre</button>
-      <button id="rec" class="rec">● Rec clip</button>
-      <button id="wav">⬇ WAV 30s</button>
+      <button id="new">New genre</button>
     </div>
-    <div id="hint">Space = play/pause · N = new genre · instrumental only</div>
+    <div class="row small">
+      <label class="chipbtn" id="hapL"><span>Haptics</span><input id="hap" type="checkbox" switch></label>
+      <button id="rec" class="rec">● Clip</button>
+      <button id="wav">↓ WAV</button>
+    </div>
+    <div id="hint">Tap the glow to play a note · <span class="kbd">Space play/pause · N new genre ·</span> instrumental</div>
   </div>
 </div>
-<div id="start"><h1>Endless<br>Music<br>Machine</h1><p>Invented genres · never repeats · no vocals</p><div class="go"></div></div>
+<div id="start"><h1>Endless<br>Music<br>Machine</h1><p>Invented genres · never repeats · no vocals</p><div class="go"></div><label class="chipbtn" id="hapL0"><span>Haptics</span><input id="hap0" type="checkbox" switch></label></div>
 <div id="toast"></div>
 <script src="dsp.js"></script>
 <script src="theory.js"></script>

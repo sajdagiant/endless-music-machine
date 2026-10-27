@@ -76,7 +76,16 @@
     this.sideGain.gain.setTargetAtTime(g.width, t, .2);
     this.lowShelf.gain.value = g.kit === '808' || g.kit === 'cine' ? 3 : 1.5; this.highShelf.gain.value = g.vibe === 'warm' ? .5 : 2;
     this.setTexture(g.tex, t);
+    this.setField(g.field, t); this.fieldBus.gain.setTargetAtTime(0, t, .1);
     this.texBus.gain.setTargetAtTime(0, t, .1);
+    // tape character: slow wow + flutter, softer top end for tape-ish genres
+    this.tapeG1.gain.setTargetAtTime(.00008 + (g.tape || 0) * .0004, t, .2); this.tapeG2.gain.setTargetAtTime(.00001 + (g.tape || 0) * .00004, t, .2);
+    this.tapeLP.frequency.setTargetAtTime(17500 - (g.tape || 0) * 5500, t, .2);
+    this.dipLP.frequency.cancelScheduledValues(t); this.dipLP.frequency.setValueAtTime(20000, t);
+    this.sat.curve = MM.acurve(1 + g.sat * 1.6, .06 + (g.tape || 0) * .06);
+    // polyrhythm: percussion voice + optional tonal ostinato that cycle on their own length
+    this.gStep = 0; this.polyI = 0; this.vacUntil = 0; this.ansMap = {}; this.lastSurprise = -6;
+    this.kitPoly = g.poly ? (g.poly.kinds.find(k => this.kit[k]) || null) : null;
     // harmony state
     this.keyOff = 0; this.prog = g.prog; this.scale = g.scale; this.mode = g.mode; this.voicing = null; this.chord = null; this.nextChord = null; this.cycleBar = 0;
     // melody state
@@ -129,6 +138,7 @@
     const ar = g.arp.rate; this.arpStride = g.grid === 12 && g.steps === 12 ? (ar >= 2 ? 3 : 2) : (ar >= 4 ? 8 : ar >= 2 ? 4 : ar <= .5 ? 1 : 2);
     if (name === 'drop' || name === 'peak') this.motifSel = 1 - this.motifSel; else if (name === 'groove') this.motifSel = 0;
     this.texBus.gain.setTargetAtTime(S.tex && !(this.muted && this.muted.tex) ? (g.tex === 'crackle' ? 1.4 : .8) : 0, t, 1);
+    this.fieldBus.gain.setTargetAtTime(this.fieldLevel() * (S.tex ? (name === 'drop' || name === 'peak' ? .5 : 1) : 0) * (this.muted && this.muted.tex ? 0 : 1), t, 1.6);
     this.emit('section', t, name);
   };
   P._modulate = function (t) {
@@ -137,7 +147,7 @@
     else this.keyOff = (this.keyOff + pick(r, [2, 2, 1, 3, 5, 7, -2, -3, 4])+ 12) % 12;
     if (chance(r, .4)) this._newProg(t); else this._announceKey(t);
   };
-  const MINOR = { Aeolian: 1, Dorian: 1, Phrygian: 1, 'Harmonic Minor': 1 };
+  const MINOR = { Aeolian: 1, Dorian: 1, Phrygian: 1, 'Harmonic Minor': 1, 'Phrygian Dominant': 1, 'Hungarian Minor': 1, Hirajoshi: 1, 'In-Sen': 1 };
   P._newProg = function (t) { // switch progression; moving between minor and major goes to the relative key
     const np = pick(this.r, this.g.progs), wasMin = !!MINOR[this.mode], isMin = !!MINOR[np.m];
     if (wasMin && !isMin) this.keyOff = (this.keyOff + 3) % 12; else if (!wasMin && isMin) this.keyOff = (this.keyOff + 9) % 12;
@@ -162,6 +172,7 @@
       let t = this.nextTime;
       if (g.grid === 16 && g.swing > 0 && i % 2 === 1) t += g.swing * sd;
       this._step(i, t, sd);
+      this.gStep = (this.gStep || 0) + 1;
       this.nextTime += sd; this.stepInBar++;
       if (this.stepInBar >= g.steps) { this.stepInBar = 0; this.bar++; this.secBar++; this.cycleBar++; }
     }
@@ -175,6 +186,7 @@
     }
     if (this.secBar >= this.secLen) this._newSection(this.nextSec, t);
     const g = this.g, S = this.S, bd = this.barDur(), bt = 60 / this.bpmNow();
+    this._surprise(t, bd);
     // chord change?
     const per = this.prog.b, total = this.prog.c.length * per, cb = this.cycleBar % total;
     this.chordStart = cb % per === 0; this.chordBarsLeft = per - (cb % per);
@@ -216,11 +228,13 @@
       else if (this.section === 'groove' || this.section === 'groove2' || this.section === 'bloom') this.hit('crash', t, .35, { verb: .3 });
     }
     this.emit('bar', t, { bar: this.bar, secBar: this.secBar, section: this.section });
+    this.fieldBar(t, bd);
     // pad: once per chord
-    if (this.chordStart && g.pad.kind && this.layerOn('pad')) {
+    if ((this.chordStart || this.forcePad) && g.pad.kind && this.layerOn('pad')) {
       const len = Math.min(this.chordLen + .3, 16);
       this.chordNote(g.pad.kind, this.voicing, t, len, .9 * (.7 + .3 * this.mood), 'pad');
     }
+    this.forcePad = false;
     // drone bass: once per chord
     if (g.bass.kind === 'drone' && this.chordStart && this.layerOn('bass')) {
       const rm = this._bassRoot(this.chord, 28); this.bassNote('drone', rm, t, this.chordLen, .9);
@@ -236,6 +250,64 @@
     if (this.section === 'break' || this.section === 'hush') { if (chance(r, .5)) this.curMotif = T.develop(this.curMotif, 'aug', r, g); }
     this.stmt++;
     const map = {}; this.curMotif.notes.forEach(n => { map[n.s] = n; }); this.leadMap = map;
+    // call & response: a second voice answers (inverted, in the gaps) after the lead has spoken
+    this.ansMap = {};
+    const st = g.steps, call = this.curMotif.notes.filter(n => n.s < st).slice(0, 4);
+    if (call.length >= 2 && g.lead.kind && this.sectionCount > 1 && this.section !== 'intro' && chance(r, .55)) {
+      const d0 = call[0].d, tw = st * 2; let p = st + 2, k = 0;
+      while (p < tw - 1 && k < call.length) {
+        if (!map[p - 1] && !map[p] && !map[p + 1]) { const d = T.nearest(2 * d0 - call[k].d + (k === call.length - 1 ? 0 : 0), k === call.length - 1 ? [0, 2, 4, 7, -3] : [-4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8]); this.ansMap[p] = { d, l: 2 }; k++; p += 2 + Math.floor(r() * 2); } else p++;
+      }
+    }
+  };
+
+  // tap the screen: play a chord-aware note in the genre's own answer voice
+  P.strike = function (u, v) {
+    if (!this.chord || !this.scale) return;
+    const n = this.scale.length, deg = Math.round(u * n * 1.6) + Math.round(v * n * .7) - 1, kind = (this.g.pers && this.g.pers.ansKind) || 'bell';
+    let m = this._melodyNote(deg, 0, 1) + (kind === 'bell' || kind === 'kalimba' || kind === 'flute' ? 12 : 0); while (m > 96) m -= 12;
+    const t = this.ctx.currentTime + .01; this.leadNote(kind, m, t, .55, .8, 'arp'); this.emit('arp', t, m);
+  };
+
+  // ---------- surprises: rare, unexpected events that keep it from feeling like a loop ----------
+  P._surprise = function (t, bd) {
+    const g = this.g, r = Math.random, S = this.S;
+    if (this.muted || this.noSurprise || this.sectionCount < 3 || this.secBar === 0 || this.secBar >= this.secLen - 1 || this.bar - this.lastSurprise < 14 || S.gap || S.roll) return;
+    if (r() > .1) return;
+    const kinds = ['dip', 'gong', 'whisper', 'turn', 'swell'].concat(this.dset ? ['vacuum', 'stutter'] : []);
+    const kind = pick(Math.random, kinds), sd = this.stepDur(), steps = g.steps; this.lastSurprise = this.bar;
+    const root = this.chord ? 60 + ((this.chord.root - 60) % 12 + 12) % 12 : 60;
+    switch (kind) {
+      case 'vacuum': {
+        this.vacUntil = t + bd; const rl = this.kit.rev.duration, st = t + bd - rl;
+        this.hit('rev', Math.max(t, st), .6, { offset: Math.max(0, t - st), verb: .5 }); this.hit('impact', t + bd, .7, { verb: .4 }); this.hit('crash', t + bd, .4, { verb: .4 });
+        break;
+      }
+      case 'dip': {
+        const p = this.dipLP.frequency; p.cancelScheduledValues(t); p.setValueAtTime(20000, t); p.exponentialRampToValueAtTime(260, t + bd * .5); p.setValueAtTime(260, t + bd * .62); p.exponentialRampToValueAtTime(20000, t + bd * .97);
+        this.swoosh(t, bd * .5, true); break;
+      }
+      case 'gong': {
+        this.leadNote('bell', root, t, 3, .75, 'arp'); this.leadNote('bell', root + 7, t + .02, 3, .5, 'arp'); this.hit('impact', t, .5, { verb: .6 }); this.hit('crash', t, .25, { verb: .6 }); break;
+      }
+      case 'whisper': {
+        const v = (this.voicing || [60, 64, 67]).slice().sort((a, b) => a - b);
+        for (let k = 0; k < 6; k++) { let m = v[k % v.length] + 12 * (1 + Math.floor(k / v.length)); while (m > 92) m -= 12; this.leadNote('bell', m, t + bd * .45 + k * sd * 1.5, 1, .2 + .03 * k, 'arp'); }
+        break;
+      }
+      case 'stutter': {
+        let at = t + bd - steps * sd * .5, iv = sd * 2, k = 0;
+        while (at < t + bd - .01) { const pr = k / 14; this.hit(k % 2 ? 'hat' : 'snare', at, .3 + .6 * pr, { rate: 1 + pr * .5, verb: .15, room: .15 }); k++; at += iv; if (k === 2) iv = sd; else if (k === 6) iv = sd / 2; else if (k === 10) iv = sd / 4; }
+        break;
+      }
+      case 'turn': {
+        this.keyOff = (this.keyOff + pick(Math.random, [1, 6, 3, -1, -3, 9, 5]) + 12) % 12; this.chord = null; this.forcePad = true; this._announceKey(t); this.swoosh(t, .9, false); break;
+      }
+      case 'swell': {
+        this.riser(t, bd * .95, .55); this.chordNote('glass', (this.voicing || [60, 64, 67]).map(x => x + 12), t, bd * 2, .7, 'pad'); break;
+      }
+    }
+    this.emit('surprise', t, kind);
   };
 
   P._bassRoot = function (ch, lo) { return lo + (((ch.root - lo) % 12) + 12) % 12; };
@@ -254,8 +326,12 @@
     const g = this.g, S = this.S, L = l => this.layerOn(l), mood = this.mood, r = Math.random;
     const steps = g.steps, last = this.secBar === this.secLen - 1;
     const lastGrp = g.groups[g.groups.length - 1];
-    const gap = !!S.gap && last && i >= steps - lastGrp;
+    const gap = (!!S.gap && last && i >= steps - lastGrp) || (this.vacUntil > 0 && t < this.vacUntil);
     const bt = 60 / this.bpmNow();
+    // humanisation: loose timing + velocity per voice, personality-driven lay-back / rush
+    const PS = g.pers, hu = g.hum || 0, J = sc => (Math.random() - .5) * 2 * sc * hu * .011, VH = () => 1 + (Math.random() - .5) * (.08 + .3 * hu);
+    const cl = x => Math.max(x, this.ctx.currentTime, 0), jt = sc => cl(t + J(sc));
+    const tk = cl(jt(.3)), ts = cl(t + (PS ? PS.lay : 0) + J(.6)), th = cl(t - (PS ? PS.rush : 0) + J(.8)), tb = cl(t + (PS ? PS.lay * .4 : 0) + J(.4)), tc = cl(jt(.9)), tl = cl(t + (PS ? PS.lay * .5 : 0) + J(1));
     // ---- drums ----
     const D = this.dset;
     if (D && !gap) {
@@ -263,16 +339,16 @@
       const kA = half ? D.alt.k : D.k, sA = half ? D.alt.s : D.s;
       const snareHit = (vv, o) => {
         o = o || {};
-        const sv = o.v == null ? vv : o.v, vb = (g.kit === 'gated' ? .45 : .14) + g.verb.lvl * .35, tt = t + (o.dt || 0);
-        if (D.sn === 'clap') this.hit('clap', tt, .8 * sv, { verb: vb });
+        const sv = o.v == null ? vv : o.v, vb = (g.kit === 'gated' ? .45 : .14) + g.verb.lvl * .35, tt = ts + (o.dt || 0);
+        if (D.sn === 'clap') this.hit('clap', tt, .8 * sv, { verb: vb, room: .25 });
         else if (D.sn === 'rim') this.hit('rim', tt, .9 * sv, { verb: vb * .7, dly: .12 });
-        else { this.hit('snare', tt, sv, { verb: vb, rate: o.rate }); if (D.sn === 'both') this.hit('clap', tt, .55 * sv, { verb: vb }); }
+        else { this.hit('snare', tt, sv * VH(), { verb: vb, rate: o.rate, room: .3 }); if (D.sn === 'both') this.hit('clap', tt, .55 * sv, { verb: vb, room: .2 }); }
         if (sv > .5) this.emit('snare', tt, sv);
       };
       // kick
       if (kA && L('kick') && this.secBar < this.leave.kick) {
         const kc = kA[i], kv = vel(kc);
-        if (kv && (D.kv >= 1 || r() < .7)) { this.hit('kick', t, .95 * kv * D.kv, { rate: 1 + (r() - .5) * .02 }); this.duck(t, g.duck * Math.min(1, kv), Math.min(.3, bt * .6)); this.emit('kick', t, kv); }
+        if (kv && (D.kv >= 1 || r() < .7)) { this.hit('kick', tk, .95 * kv * D.kv * VH(), { rate: 1 + (r() - .5) * .02 }); this.duck(tk, g.duck * Math.min(1, kv), Math.min(.3, bt * .6)); this.emit('kick', tk, kv); }
       }
       // snare / clap
       const rolling = S.roll && L('snare');
@@ -300,7 +376,7 @@
         const hc = D.h[i];
         if (hc && hc !== '.') {
           const n = hc === 'r' ? 2 : hc === 't' ? 3 : hc === 'q' ? 4 : 1, hv = (hc === 'r' || hc === 't' || hc === 'q') ? .7 : vel(hc);
-          if (!(hc === 'o' && r() < .12)) for (let k = 0; k < n; k++) { this.hit('hat', t + k * sd / n, hv * (.8 + r() * .3) * (n > 1 ? (.75 + .25 * k / n) : 1), { pan: (r() - .5) * .5, rate: 1 + (r() - .5) * .03 }); }
+          if (!(hc === 'o' && r() < .12)) for (let k = 0; k < n; k++) { this.hit('hat', th + k * sd / n, hv * (.8 + r() * .3) * (n > 1 ? (.75 + .25 * k / n) : 1), { pan: (r() - .5) * .5, rate: 1 + (r() - .5) * .03 }); }
           if (this.lastOH && hc !== 'o') { this.lastOH.gain.setTargetAtTime(0, t, .004); this.lastOH = null; }
           if (r() < .5) this.emit('hat', t, hv);
         } else if (mood > .55 && r() < (mood - .5) * .22 && g.grid === 16) this.hit('hat', t, .22 + r() * .12, { pan: (r() - .5) * .5 });
@@ -320,7 +396,7 @@
         const lo = g.bass.walk ? 36 : g.bass.kind === '808' ? 27 : 28;
         const m = this._bassMidi(bp.ch, this.chord, this.nextChord, lo), d = Math.max(.08, bp.len * sd * (g.bass.kind === '808' || g.bass.kind === 'sub' ? .98 : .92));
         const slide = bp.ch === 'g' && this.lastBassF ? this.lastBassF : 0;
-        this.bassNote(g.bass.kind, m, t + r() * .003, d, .85 + r() * .15, { slide, accent: bp.ch === 'o' || (g.bass.kind === 'acid' && r() < .3) });
+        this.bassNote(g.bass.kind, m, tb, d, (.85 + r() * .15) * Math.min(1.1, VH()), { slide, accent: bp.ch === 'o' || (g.bass.kind === 'acid' && r() < .3) });
         this.lastBassF = this.mtof(m);
       }
     }
@@ -330,7 +406,7 @@
       if (cp) {
         const d = cp.len * sd * (g.comp.stacc ? .85 : .98);
         const v = g.comp.vel * vel(cp.ch) * (.85 + r() * .2) * (.6 + mood * .6);
-        if (r() < .93) this.chordNote(g.comp.kind, this.voicing, t + r() * .006, d, v, 'chord', { short: d * .9, strum: g.comp.kind === 'pluckchord' ? .012 : (g.comp.kind === 'rhodes' || g.comp.kind === 'epiano') ? .008 : 0, stac: g.comp.stacc });
+        if (r() < .93) this.chordNote(g.comp.kind, this.voicing, tc, d, v * VH(), 'chord', { short: d * .9, strum: g.comp.kind === 'pluckchord' ? .012 : (g.comp.kind === 'rhodes' || g.comp.kind === 'epiano') ? .008 : 0, stac: g.comp.stacc });
       }
     }
     // ---- arp ----
@@ -340,7 +416,7 @@
       switch (this.arpMode) { case 'down': idx = n - 1 - (k % n); break; case 'updown': { const p = k % (2 * n - 2); idx = p < n ? p : 2 * n - 2 - p; break; } case 'skip': idx = [0, 2, 1, 3, 2, 4, 3, 5][k % 8] % n; break; default: idx = k % n; }
       let m = pool[idx] + (['bell', 'kalimba', 'pluck', 'chip'].includes(g.arp.kind) ? 12 : 0);
       while (m > 90) m -= 12;
-      this.leadNote(g.arp.kind, m, t, this.arpStride * sd * .8, (.42 + .25 * mood) * (i % (this.arpStride * 4) === 0 ? 1.15 : .85), 'arp');
+      this.leadNote(g.arp.kind, m, jt(.7), this.arpStride * sd * .8, (.42 + .25 * mood) * (i % (this.arpStride * 4) === 0 ? 1.15 : .85), 'arp');
       this.emit('arp', t, m);
     }
     // ---- lead (motif) ----
@@ -349,8 +425,27 @@
       if (n && (n.v > .9 || r() > (1 - mood) * .3)) {
         const m = this._melodyNote(n.d, i, n.l);
         const d = Math.max(.1, n.l * sd * (g.lead.kind === 'chip' || g.lead.kind === 'pluck' ? .9 : .97));
-        this.leadNote(g.lead.kind, m, t + r() * .006, d, (.75 + .25 * n.v) * (.8 + r() * .25) * (.7 + mood * .5), 'lead');
-        this.emit('lead', t, m);
+        this.leadNote(g.lead.kind, m, tl, d, (.75 + .25 * n.v) * (.8 + r() * .25) * (.7 + mood * .5) * VH(), 'lead');
+        this.emit('lead', tl, m);
+      }
+      // answer voice (call & response)
+      const an = this.ansMap && this.ansMap[pos];
+      if (an && r() < .92) {
+        const ak = g.pers ? g.pers.ansKind : 'bell', m = this._melodyNote(an.d, i, an.l) + (ak === 'bell' || ak === 'kalimba' || ak === 'flute' ? 12 : 0);
+        this.leadNote(ak, Math.min(m, 94), jt(.8), Math.max(.15, an.l * sd), .5 * (.8 + r() * .3) * (.6 + mood * .5), 'arp');
+        this.emit('arp', t, m);
+      }
+    }
+    // ---- polyrhythm: a voice cycling on its own length against the bar ----
+    if (!gap && g.poly && this.kitPoly && L('perc')) {
+      const pi = this.gStep % g.poly.len;
+      if (g.poly.pat[pi]) this.hit(this.kitPoly, jt(.6), (pi === 0 ? .5 : .36) * (.8 + r() * .3), { pan: g.poly.pan, rate: g.poly.rate * (1 + (pi % 3) * .035), verb: .14, dly: .09 });
+    }
+    if (!gap && g.polyT && this.chord && L('arp')) {
+      const pi = this.gStep % g.polyT.len;
+      if (g.polyT.pat[pi]) {
+        const v = this.voicing.slice().sort((a, b) => a - b); let m = v[this.polyI++ % v.length] + g.polyT.oct + (this.polyI % 7 === 0 ? 12 : 0); while (m > 90) m -= 12;
+        this.leadNote(g.polyT.kind, m, jt(.6), sd * 1.8, .3 * (.8 + r() * .3) * (.6 + mood * .5), 'arp');
       }
     }
   };
