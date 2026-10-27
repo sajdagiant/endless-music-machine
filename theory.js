@@ -12,12 +12,15 @@
   const MODES = {
     Ionian: [0, 2, 4, 5, 7, 9, 11], Dorian: [0, 2, 3, 5, 7, 9, 10], Phrygian: [0, 1, 3, 5, 7, 8, 10],
     Lydian: [0, 2, 4, 6, 7, 9, 11], Mixolydian: [0, 2, 4, 5, 7, 9, 10], Aeolian: [0, 2, 3, 5, 7, 8, 10],
-    'Harmonic Minor': [0, 2, 3, 5, 7, 8, 11]
+    'Harmonic Minor': [0, 2, 3, 5, 7, 8, 11],
+    // rarer colours
+    'Phrygian Dominant': [0, 1, 4, 5, 7, 8, 10], 'Lydian Dominant': [0, 2, 4, 6, 7, 9, 10], 'Double Harmonic': [0, 1, 4, 5, 7, 8, 11],
+    'Hungarian Minor': [0, 2, 3, 6, 7, 8, 11], Hirajoshi: [0, 2, 3, 7, 8], 'In-Sen': [0, 1, 5, 7, 10], 'Whole Tone': [0, 2, 4, 6, 8, 10]
   };
   const QUAL = {
     M: [0, 4, 7], m: [0, 3, 7], maj7: [0, 4, 7, 11], m7: [0, 3, 7, 10], '7': [0, 4, 7, 10], m9: [0, 3, 7, 10, 14], maj9: [0, 4, 7, 11, 14],
     '9': [0, 4, 7, 10, 14], '13': [0, 4, 10, 14, 21], sus2: [0, 2, 7], sus4: [0, 5, 7], m7b5: [0, 3, 6, 10], dim: [0, 3, 6], m6: [0, 3, 7, 9],
-    'maj7#11': [0, 4, 7, 11, 18], add9: [0, 4, 7, 14], m11: [0, 3, 7, 10, 17], '5': [0, 7], maj6: [0, 4, 7, 9], sus2add: [0, 2, 7, 12]
+    'maj7#11': [0, 4, 7, 11, 18], add9: [0, 4, 7, 14], m11: [0, 3, 7, 10, 17], '5': [0, 7], maj6: [0, 4, 7, 9], sus2add: [0, 2, 7, 12], aug: [0, 4, 8], '7sus4': [0, 5, 7, 10], m7add11: [0, 3, 7, 10, 17]
   };
 
   // ---------- progressions: [rootSemitones, quality]; b = bars per chord ----------
@@ -90,6 +93,15 @@
       { m: 'Dorian', b: 1, c: [[0, 'm9'], [5, '9'], [3, 'maj7'], [10, 'maj9']] },
       { m: 'Aeolian', b: 1, c: [[0, 'm7'], [8, 'maj7'], [10, 'maj7'], [7, 'm7']] },
       { m: 'Ionian', b: 1, c: [[0, 'maj9'], [2, 'm9'], [5, 'maj7'], [7, '13']] }],
+    exotic: [
+      { m: 'Phrygian Dominant', b: 2, c: [[0, 'M'], [1, 'maj7'], [0, 'M'], [10, 'm7']] },
+      { m: 'Phrygian Dominant', b: 2, c: [[0, 'M'], [1, 'M'], [5, 'm'], [0, 'M']] },
+      { m: 'Lydian Dominant', b: 2, c: [[0, '9'], [2, 'M'], [0, '9'], [7, 'm7']] },
+      { m: 'Double Harmonic', b: 2, c: [[0, 'M'], [1, 'M'], [5, 'm'], [0, 'M']] },
+      { m: 'Hungarian Minor', b: 2, c: [[0, 'm'], [8, 'M'], [7, 'M'], [0, 'm']] },
+      { m: 'Hirajoshi', b: 2, c: [[0, 'm'], [8, 'maj7'], [7, 'sus4'], [0, 'm']] },
+      { m: 'In-Sen', b: 2, c: [[0, 'sus4'], [5, 'sus2'], [10, 'sus2'], [0, 'sus4']] },
+      { m: 'Whole Tone', b: 2, c: [[0, 'aug'], [2, 'aug'], [0, 'aug'], [10, 'aug']] }],
     prog: [
       { m: 'Lydian', b: 1, c: [[0, 'maj7#11'], [2, '9'], [0, 'maj7#11'], [4, 'm7']] },
       { m: 'Dorian', b: 1, c: [[0, 'm7'], [3, 'maj7'], [8, 'maj7'], [10, '7']] },
@@ -297,7 +309,8 @@
     let drums = null;
     if (drumKey) drums = drumKey === 'odd' ? oddDrums(r, stepsG, groups) : DRUMS[drumKey];
     if (A.id === 'jazz') meterName = '4/4 swing';
-    const prName = pick(r, H.progs), progs = PR[prName];
+    const exotic = chance(r, .2);
+    const prName = exotic ? 'exotic' : pick(r, H.progs), progs = PR[prName];
     let prog = pick(r, progs);
     const mode = prog.m, bpm = Math.round(rnd(r, A.bpm[0], A.bpm[1]));
     const root = Math.floor(r() * 12);
@@ -310,7 +323,7 @@
     const comp = { kind: ck, pats: cmp.pats[stepsG] || null, vel: cmp.vel, stacc: !!cmp.stacc };
     const pk = pick(r, (chance(r, .5) ? L : A).pad.kinds);
     const ld = (chance(r, .6) ? L : (C || A)).lead;
-    const leadKind = pick(r, ld.kinds);
+    const leadKind = exotic && chance(r, .6) ? pick(r, ['flute', 'kalimba', 'pluck', 'bell', 'fm']) : pick(r, ld.kinds);
     const arpSrc = (chance(r, .5) ? L : (C || A)).arp;
     const arpKind = pick(r, arpSrc.kinds);
     const tex = (chance(r, .6) ? A : (C || B)).tex;
@@ -334,6 +347,32 @@
     name += B !== A ? B.tag + ' ' + A.tag : A.tag;
     g.name = name.split(' ').filter((w, i, a) => a.indexOf(w) === i).join(' ');
     g.alt = chance(r, .5);
+    g.exotic = exotic;
+    // ---- v3: personality, humanisation, field recordings, polyrhythm ----
+    const HUM = { lofi: .85, jazz: .9, dub: .7, afro: .6, ambient: .5, cine: .4, garage: .55, house: .35, wave: .3, dnb: .25, trap: .2, techno: .12, prog: .3, chip: .08 };
+    const TAPE = { lofi: 1, dub: .8, jazz: .5, ambient: .5, cine: .35, wave: .5, afro: .3, garage: .25, house: .2, dnb: .15, trap: .2, techno: .12, prog: .25, chip: .05 };
+    g.hum = Math.min(1, ((HUM[A.id] || .3) + (HUM[B.id] || .3)) / 2 * rnd(r, .8, 1.15));
+    g.tape = Math.min(1, ((TAPE[A.id] || .2) + (TAPE[B.id] || .2)) / 2 * rnd(r, .8, 1.2));
+    const vib = { rate: rnd(r, 4.1, 6.5), depth: rnd(r, 2, 15), delay: rnd(r, .08, .6) };
+    g.pers = {
+      saw: pick(r, [0, 1, 1, 2]), vib, glide: chance(r, .35) ? rnd(r, .07, .16) : rnd(r, .03, .06), atk: rnd(r, .7, 1.6), rel: rnd(r, .8, 1.7),
+      bright: rnd(r, .8, 1.2) * (g.vibe === 'warm' ? .92 : g.vibe === 'ice' || g.vibe === 'neon' ? 1.06 : 1), spread: rnd(r, .6, 1.45), drift: rnd(r, 1.5, 6) * (.5 + g.hum),
+      lay: rnd(r, 0, .016) * g.hum, rush: rnd(r, 0, .004) * g.hum, ansKind: pick(r, ['bell', 'kalimba', 'pluck', 'flute', 'sine', 'fm'])
+    };
+    g.pers.tag = (g.pers.glide > .09 ? 'gliding' : vib.depth > 11 ? 'trembling' : g.pers.atk > 1.3 ? 'shy' : g.pers.bright > 1.1 ? 'bright' : g.pers.bright < .88 ? 'velvet' : 'direct') + ' lead · ' +
+      (g.hum > .6 ? 'loose' : g.hum < .2 ? 'tight' : g.swing > .2 ? 'swung' : 'steady') + ' hands';
+    const FIELD = { lofi: ['rain', 'rain', 'night', 'city'], house: ['city', 'night'], dnb: ['city', 'storm', 'rain'], wave: ['city', 'night', 'rain'], ambient: ['sea', 'wind', 'birds', 'rain', 'night'],
+      dub: ['rain', 'night', 'night'], trap: ['city', 'rain'], jazz: ['rain', 'city', 'night'], chip: ['night'], afro: ['birds', 'night', 'wind'], cine: ['wind', 'storm', 'sea', 'wind'],
+      techno: ['city', 'storm'], garage: ['city', 'rain'], prog: ['wind', 'night', 'storm'] };
+    const FP = { ambient: .85, lofi: .65, cine: .7, dub: .6, jazz: .55, afro: .55, chip: .1 };
+    const fam = chance(r, .5) ? A : B;
+    g.field = chance(r, FP[fam.id] == null ? .38 : FP[fam.id]) ? pick(r, FIELD[fam.id] || ['wind']) : null;
+    const euclid = (k, n) => { const a = []; let acc = 0; for (let i = 0; i < n; i++) { acc += k; if (acc >= n) { acc -= n; a.push(1); } else a.push(0); } return a; };
+    const okLen = [3, 5, 6, 7, 9, 10, 11, 13].filter(n => stepsG % n !== 0 && n !== stepsG);
+    g.poly = null;
+    if (drums && chance(r, .45)) { const len = pick(r, okLen); g.poly = { len, pat: euclid(Math.max(2, Math.round(len * rnd(r, .38, .62))), len), kinds: pick(r, [['wood', 'rim', 'cow'], ['congaH', 'shaker', 'wood'], ['cow', 'agoH', 'rim'], ['rim', 'wood', 'shaker'], ['agoL', 'tomH', 'wood']]), rate: rnd(r, .9, 1.15), pan: rnd(r, -.7, .7) }; }
+    if (chance(r, drums ? .3 : .45)) { const len = pick(r, okLen.filter(n => n >= 5)); g.polyT = { len, pat: euclid(Math.max(2, Math.round(len * rnd(r, .4, .65))), len), kind: pick(r, ['kalimba', 'bell', 'pluck', 'fm']), oct: pick(r, [0, 12, 12]) }; }
+    g.pers.tag += (g.exotic ? ' · ' + mode.toLowerCase() : '') + (g.poly ? ' · ' + g.poly.len + '-against-' + stepsG : '') + (g.field ? ' · ' + g.field : '');
     return g;
   }
 

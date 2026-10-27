@@ -211,7 +211,9 @@
       ['kick', () => mono(kick(sr, kk))],
       ['snare', () => st(rr => snare(sr, Object.assign({}, K.snare, { f0: K.snare.f0 * tune, f1: K.snare.f1 * tune }), rr))],
       ['clap', () => st(rr => clap(sr, K.clap, rr))],
+      ['snare2', () => st(rr => snare(sr, Object.assign({}, K.snare, { f0: K.snare.f0 * tune * 1.012, f1: K.snare.f1 * tune * .99 }), mulberry32((seed || 1) + (rr === r ? 4242 : 5353))))],
       ['hat', () => st(rr => hat(sr, Object.assign({ metal: .6, pitch: 1 }, K.hat), rr))],
+      ['hat2', () => st(rr => hat(sr, Object.assign({ metal: .6, pitch: 1 }, K.hat, { pitch: (K.hat.pitch || 1) * 1.035 }), mulberry32((seed || 1) + (rr === r ? 9191 : 8181))))],
       ['ohat', () => st(rr => hat(sr, Object.assign({ metal: .6, pitch: 1 }, K.hat, K.ohat), rr))],
       ['ride', () => st(rr => ride(sr, Object.assign({ dec: .9, len: 2 }, K.ride, { len: 2 }), rr))],
       ['crash', () => st(rr => crash(sr, 2.2, rr, kitName === 'cine'))],
@@ -234,25 +236,47 @@
   };
 
   // ---- reverb impulse (stereo, generated) ----
+  // v3 reverb: early-reflection cluster with air absorption, 3-band decay (lows linger, highs die first), decorrelated stereo, slowly modulated density
   MM.makeIR = function (ctx, seconds, dark, seed) {
     const sr = ctx.sampleRate, n = Math.floor(sr * seconds), buf = ctx.createBuffer(2, n, sr), r = mulberry32(seed || 3);
-    const pre = Math.floor(sr * (.008 + r() * .02));
+    const pre = Math.floor(sr * (.011 + r() * .022));
+    const rtL = seconds * 1.12, rtM = seconds, rtH = seconds * (.2 + (1 - dark) * .38);
     for (let c = 0; c < 2; c++) {
-      const d = buf.getChannelData(c); let lp = 0, lp2 = 0;
+      const d = buf.getChannelData(c); let a1 = 0, a2 = 0, hpz = 0, ph = r() * 6.28;
       for (let i = pre; i < n; i++) {
-        const t = (i - pre) / sr, a = Math.exp(-6.9 * t / seconds);
-        const k = Math.max(.04, (.75 - dark * .6) * Math.exp(-t / (seconds * .35)) + .05); // tail gets darker
-        lp += ((r() * 2 - 1) - lp) * k; lp2 += (lp - lp2) * Math.min(1, k * 1.6);
-        d[i] = lp2 * a * Math.min(1, t / .004);
+        const t = (i - pre) / sr, w = r() * 2 - 1;
+        a1 += (w - a1) * .045; a2 += (w - a2) * .42;                // low / mid-low-pass states
+        const low = a1, mid = a2 - a1, high = w - a2;
+        const env = Math.exp(-6.9 * t / rtM), eL = Math.exp(-6.9 * t / rtL), eH = Math.exp(-6.9 * t / rtH);
+        const dens = Math.min(1, .25 + t / .09);                   // density builds up (sparse start = smoother, less metallic)
+        const mod = 1 + .22 * Math.sin(ph + t * (.7 + c * .23));
+        let v = (low * 1.6 * eL * .9 + mid * 1.15 * env + high * .85 * eH) * dens * mod;
+        hpz += (v - hpz) * .012; v -= hpz;                         // remove DC / sub rumble
+        d[i] = v * Math.min(1, t / .006);
       }
-      for (let e = 0; e < 7; e++) { // early reflections
-        const at = pre + Math.floor(sr * (.006 + r() * .05)); if (at < n) d[at] += (r() < .5 ? -1 : 1) * (.5 - e * .05) * (c ? .8 : 1);
+      let taps = 0;                                                  // early reflections: sparse, damped, panned apart
+      for (let e = 0; e < 12; e++) {
+        const dt = .004 + Math.pow(r(), 1.3) * .075, at = pre + Math.floor(sr * dt); if (at + 80 >= n) continue;
+        const amp = (r() < .5 ? -1 : 1) * (.62 - e * .036) * (c ? 1 - (e % 3) * .08 : 1 - ((e + 1) % 3) * .08);
+        let lp = 0, k = .25 + r() * .5; for (let j = 0; j < 72; j++) { lp += ((j === 0 ? 1 : 0) - lp) * k; d[at + j] += amp * lp * (1 - j / 72); }
+        taps++;
       }
+      // fade the very end so it never clicks
+      const f = Math.floor(sr * .15); for (let i = 0; i < f && i < n; i++) d[n - 1 - i] *= i / f;
     }
     return buf;
   };
-
-  // vinyl / tape crackle loop
+  // short bright "room" for snares / claps / toms
+  MM.makeRoomIR = function (ctx, seed) {
+    const sr = ctx.sampleRate, sec = .42, n = Math.floor(sr * sec), buf = ctx.createBuffer(2, n, sr), r = mulberry32((seed || 5) + 31);
+    for (let c = 0; c < 2; c++) {
+      const d = buf.getChannelData(c); let lp = 0;
+      const pre = Math.floor(sr * (.002 + c * .0013));
+      for (let i = pre; i < n; i++) { const t = (i - pre) / sr; lp += ((r() * 2 - 1) - lp) * (.5 * Math.exp(-t / .12) + .1); d[i] = lp * Math.exp(-6.9 * t / sec) * Math.min(1, t / .002); }
+      for (let e = 0; e < 6; e++) { const at = pre + Math.floor(sr * (.003 + r() * .022)); if (at < n) d[at] += (r() < .5 ? -1 : 1) * (.7 - e * .08); }
+    }
+    return buf;
+  };
   MM.makeCrackle = function (ctx, seed) {
     const sr = ctx.sampleRate, n = sr * 4, buf = ctx.createBuffer(2, n, sr), r = mulberry32(seed || 11);
     for (let c = 0; c < 2; c++) {

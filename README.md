@@ -1,11 +1,14 @@
 # Endless Music Machine
 Invented, never-repeating **instrumental** music in the browser. Pure Web Audio, no dependencies, no sample files.
 Run: `./serve.sh` (or `python3 -m http.server 8080`) → open http://localhost:8080 and tap start.
-Keys: Space play/pause, N new genre.
+Keys: Space play/pause, N new genre. Tap the glow to play a note in the current key.
 
 ## How it works
-- `dsp.js` – drum-kit synthesis rendered to buffers (pitch-enveloped kicks, snappy snares/claps, metallic hats, ride, toms, congas…) and generated reverb impulses.
-- `theory.js` – scales, chord qualities, voice-led progressions, 14 genre families (lo-fi, house, jungle/DnB, synthwave, ambient, dub, trap, jazz, arcade/chiptune, afrobeat 12/8, cinematic, techno/acid, 2-step garage, 7/8 odd-time) that are **mixed into invented hybrids**, motif generator/developer.
-- `engine.js` – mix chain (sidechain-style ducking, convolution reverb, ping-pong delay, saturation, glue compressor + limiter, M/S stereo width) and the synth voices (FM keys, detuned supersaws, strings, brass, pluck, kalimba, flute, acid/reese/808/sub/walking bass…).
-- `sequencer.js` – arrangement (intro → groove → build-up with snare roll/riser/gap → drop → breakdown → …), key changes, evolving motifs, per-genre rhythm grids (straight, swing, triplet, half-time, 6/8, 7/8, 12/8).
-- `machine.js` – UI, visuals, iOS audio unlock, recording / WAV export.
+- `dsp.js` – drum-kit synthesis rendered to buffers (pitch-enveloped kicks, snappy snares/claps, metallic hats, ride, toms, congas…, round-robin snare/hat variants), generated convolution reverbs (3-band decay, early reflections, short drum room).
+- `theory.js` – scales (incl. rarer colours: Phrygian Dominant, Hirajoshi, In-Sen, Double Harmonic, Hungarian Minor, Lydian Dominant, Whole Tone), voice-led progressions, 14 genre families fused into **invented hybrids**, motif generator/developer, per-genre *instrument personality* (vibrato, glide, attack, brightness, detune spread, drift, lay-back), humanisation, field-recording bed, polyrhythm.
+- `engine.js` – mix chain (per-bus EQ against mud/harshness, sidechain-style ducking, convolution reverb, ping-pong delay, asymmetric tape saturation + wow/flutter, glue compressor + limiter, M/S width), band-limited warm saw/square waves with randomised harmonic phase, synthesized field recordings (rain, wind, sea, crickets, birds, storm, city, night) and the synth voices.
+- `sequencer.js` – arrangement (intro → groove → build → drop → break…), key changes, evolving motifs, **call & response** answer voice, **polyrhythmic** percussion/ostinato cycling on their own length, loose human timing/velocity, and rare **surprises** (vacuum bar, underwater dip, gong, whisper, glitch stutter, key turn, swell).
+- `machine.js` – UI, per-genre colour palettes (cross-faded), haptics, visuals, iOS audio unlock, recording / WAV export.
+
+## Haptics
+Optional toggle. Android: `navigator.vibrate`. iPhone Safari has no vibrate API: taps on the glow and buttons are forwarded to a hidden `<input type=checkbox switch>` (native tick, iOS 17.4+/18+); beat-synced ticks (drops, downbeats, surprises — throttled, never constant) are best-effort because recent WebKit only allows switch haptics from real user taps.
