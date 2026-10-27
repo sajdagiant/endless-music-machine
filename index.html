@@ -35,7 +35,7 @@ input[type=range]{-webkit-appearance:none;appearance:none;width:min(46vw,240px);
 input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 0 14px var(--a)}
 input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radius:50%;background:#fff;box-shadow:0 0 14px var(--a)}
 #hint{font-size:10px;opacity:.45;letter-spacing:.14em;text-transform:uppercase;text-align:center}
-#start{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;background:radial-gradient(circle at 50% 45%,#1a0b2e,#05050a 70%);z-index:10;cursor:pointer;text-align:center;padding:20px}
+#start{-webkit-tap-highlight-color:transparent;position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;background:radial-gradient(circle at 50% 45%,#1a0b2e,#05050a 70%);z-index:10;cursor:pointer;text-align:center;padding:20px}
 #start h1{font-family:"Arial Black",Impact,system-ui,sans-serif;font-size:clamp(38px,11vw,120px);line-height:.9;margin:0;text-transform:uppercase;background:linear-gradient(95deg,#ff2d95,#27e3ff);-webkit-background-clip:text;background-clip:text;color:transparent}
 #start p{margin:0;letter-spacing:.3em;font-size:12px;text-transform:uppercase;opacity:.7}
 #start .go{width:96px;height:96px;border-radius:50%;background:linear-gradient(135deg,#ff2d95,#27e3ff);display:grid;place-items:center;box-shadow:0 0 60px #ff2d9588;animation:pulse2 1.6s infinite}
@@ -64,7 +64,10 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 </div>
 <div id="start"><h1>Endless<br>Music<br>Machine</h1><p>Invented genres · never repeats · no vocals</p><div class="go"></div></div>
 <div id="toast"></div>
+<script src="dsp.js"></script>
+<script src="theory.js"></script>
 <script src="engine.js"></script>
+<script src="sequencer.js"></script>
 <script src="machine.js"></script>
 </body>
 </html>

@@ -99,12 +99,17 @@
   }
   function tick() { if (eng && playing) eng.scheduleUntil(ctx.currentTime + .6); }
 
+  let metaG = null;
+  function renderMeta(key, mode) {
+    const g = metaG; if (!g) return;
+    $('meta').innerHTML = `<span><b>${Math.round(g.bpm)}</b> bpm</span><span><b>${g.meterName}</b></span><span><b>${key}</b> ${mode}</span><span>${g.family} DNA</span><span>seed ${g.seed.toString(36)}</span>`;
+  }
   function setGenreUI(g) {
     const h = $('genre');
     h.classList.add('swap');
     setTimeout(() => {
       h.textContent = g.name;
-      $('meta').innerHTML = `<span><b>${Math.round(g.bpm)}</b> bpm</span><span><b>${g.key}</b> ${g.scaleName}</span><span>${g.family} DNA</span><span>seed ${g.seed.toString(36)}</span>`;
+      metaG = g; renderMeta(g.key, g.scaleName);
       h.classList.remove('swap');
     }, 280);
     V.hue = g.hue; V.targetHue = g.hue;
@@ -118,17 +123,20 @@
     if (playing) { ctx.suspend(); playing = false; if (keepAlive) keepAlive.pause(); $('play').textContent = 'Play'; }
     else { unlockIOS(); ctx.resume(); playing = true; $('play').textContent = 'Pause'; }
   }
-  function newGenre() {
+  // the machine keeps evolving: a fresh hybrid genre every ~7 minutes while playing
+  setInterval(() => { if (started && playing && eng && !eng.pendingGenre && ctx.currentTime - lastGenreAt > 420) newGenre(true); }, 5000);
+  let lastGenreAt = 0;
+  function newGenre(auto) {
     if (!started) start();
     const g = MM.inventGenre((Math.random() * 4e9) >>> 0);
-    eng.setGenre(g);
-    toast('Next: ' + g.name + ' …');
+    eng.setGenre(g); lastGenreAt = ctx.currentTime;
+    toast((auto === true ? 'Drifting to: ' : 'Next: ') + g.name + ' …');
     if (!playing) togglePlay();
   }
   $('start').addEventListener('click', start);
   $('start').addEventListener('touchend', e => { e.preventDefault(); start(); }, { passive: false });
   $('play').addEventListener('click', togglePlay);
-  $('new').addEventListener('click', newGenre);
+  $('new').addEventListener('click', () => newGenre());
   $('mood').addEventListener('input', e => { if (eng) eng.mood = e.target.value / 100; });
   addEventListener('keydown', e => {
     if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
@@ -197,9 +205,10 @@
       }
       else if (e.type === 'hat') { if (Math.random() < .5) V.sparks.push({ x: Math.random() * W, y: Math.random() * H, life: 1 }); }
       else if (e.type === 'genre') { setGenreUI(e.data); V.flash = 1; }
+      else if (e.type === 'key') { renderMeta(e.data.key, e.data.mode); }
       else if (e.type === 'section') {
         V.secName = e.data; $('section').textContent = e.data;
-        if (e.data === 'drop') V.flash = 1;
+        if (e.data === 'drop' || e.data === 'peak') V.flash = 1;
       }
     }
     if (events.length > 600) events.splice(0, events.length - 300);
