@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Endless Music Machine</title>
+<meta name="theme-color" content="#05050a">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23ff2d95'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%2305050a'/%3E%3C/svg%3E">
+<style>
+:root{--h:320;--a:hsl(var(--h) 100% 62%);--b:hsl(calc(var(--h) + 150) 100% 62%)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:#05050a;color:#f4f1ff;font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;overflow:hidden}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+#ui{position:fixed;inset:0;display:flex;flex-direction:column;justify-content:space-between;padding:max(16px,env(safe-area-inset-top)) 16px max(16px,env(safe-area-inset-bottom));pointer-events:none}
+#ui>*{pointer-events:auto}
+header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;font-size:11px;letter-spacing:.18em;text-transform:uppercase;opacity:.85}
+header .brand{opacity:.6}
+#section{padding:4px 10px;border:1px solid #fff3;border-radius:99px;backdrop-filter:blur(6px);background:#0006}
+#center{text-align:center;pointer-events:none;margin-top:27vh}
+#genre{font-family:"Arial Black",Impact,system-ui,sans-serif;font-weight:900;font-size:clamp(30px,8vw,92px);line-height:.95;text-transform:uppercase;letter-spacing:-.02em;margin:0;
+ background:linear-gradient(95deg,var(--a),var(--b));-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 0 24px hsl(var(--h) 100% 55% / .5));transition:opacity .4s,transform .4s}
+#genre.swap{opacity:0;transform:scale(.96) translateY(6px)}
+#meta{margin-top:14px;font-size:12px;letter-spacing:.16em;text-transform:uppercase;opacity:.75;display:flex;gap:10px 18px;justify-content:center;flex-wrap:wrap}
+#meta b{color:var(--b);font-weight:600}
+#controls{display:flex;flex-direction:column;align-items:center;gap:14px}
+.row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;align-items:center}
+button{font:inherit;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#fff;background:#0b0b18cc;border:1px solid #fff4;border-radius:14px;padding:13px 18px;cursor:pointer;backdrop-filter:blur(8px);transition:.15s;min-height:46px}
+button:hover{border-color:var(--a);box-shadow:0 0 18px hsl(var(--h) 100% 60% / .45)}
+button:active{transform:scale(.96)}
+button.primary{background:linear-gradient(95deg,var(--a),var(--b));border:0;color:#08060f;font-weight:800;min-width:120px}
+button.rec.on{background:#ff2040;border-color:#ff2040;animation:pulse 1s infinite}
+@keyframes pulse{50%{box-shadow:0 0 22px #ff2040}}
+.mood{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.16em;text-transform:uppercase;opacity:.9;background:#0b0b18aa;border:1px solid #fff2;border-radius:14px;padding:8px 14px;backdrop-filter:blur(8px)}
+input[type=range]{-webkit-appearance:none;appearance:none;width:min(46vw,240px);height:4px;border-radius:9px;background:linear-gradient(90deg,var(--b),var(--a));outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 0 14px var(--a)}
+input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radius:50%;background:#fff;box-shadow:0 0 14px var(--a)}
+#hint{font-size:10px;opacity:.45;letter-spacing:.14em;text-transform:uppercase;text-align:center}
+#start{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;background:radial-gradient(circle at 50% 45%,#1a0b2e,#05050a 70%);z-index:10;cursor:pointer;text-align:center;padding:20px}
+#start h1{font-family:"Arial Black",Impact,system-ui,sans-serif;font-size:clamp(38px,11vw,120px);line-height:.9;margin:0;text-transform:uppercase;background:linear-gradient(95deg,#ff2d95,#27e3ff);-webkit-background-clip:text;background-clip:text;color:transparent}
+#start p{margin:0;letter-spacing:.3em;font-size:12px;text-transform:uppercase;opacity:.7}
+#start .go{width:96px;height:96px;border-radius:50%;background:linear-gradient(135deg,#ff2d95,#27e3ff);display:grid;place-items:center;box-shadow:0 0 60px #ff2d9588;animation:pulse2 1.6s infinite}
+#start .go:after{content:"";border-left:28px solid #08060f;border-top:17px solid transparent;border-bottom:17px solid transparent;margin-left:8px}
+@keyframes pulse2{50%{transform:scale(1.08)}}
+#toast{position:fixed;left:50%;bottom:110px;transform:translateX(-50%);background:#000c;border:1px solid #fff3;padding:8px 14px;border-radius:10px;font-size:12px;opacity:0;transition:.3s;pointer-events:none}
+#toast.show{opacity:1}
+@media (max-width:520px){button{padding:12px 13px;font-size:11px}#center{margin-top:30vh}}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div id="ui">
+  <header><span class="brand">∞ Endless Music Machine</span><span id="section">—</span></header>
+  <div id="center"><h1 id="genre">&nbsp;</h1><div id="meta"></div></div>
+  <div id="controls">
+    <div class="mood"><span>Chill</span><input id="mood" type="range" min="0" max="100" value="55" aria-label="Mood"><span>Intense</span></div>
+    <div class="row">
+      <button id="play" class="primary">Pause</button>
+      <button id="new">⟳ New genre</button>
+      <button id="rec" class="rec">● Rec clip</button>
+      <button id="wav">⬇ WAV 30s</button>
+    </div>
+    <div id="hint">Space = play/pause · N = new genre · instrumental only</div>
+  </div>
+</div>
+<div id="start"><h1>Endless<br>Music<br>Machine</h1><p>Invented genres · never repeats · no vocals</p><div class="go"></div></div>
+<div id="toast"></div>
+<script src="engine.js"></script>
+<script src="machine.js"></script>
+</body>
+</html>
