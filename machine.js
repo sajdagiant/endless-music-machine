@@ -207,14 +207,14 @@
       h.classList.remove('swap');
     }, 280);
     pal.tgt = pickScheme(g);
-    if (!setGenreUI.told) { setGenreUI.told = 1; setTimeout(() => toast('Tap the glow to play a note'), 2500); }
+    if (!setGenreUI.told) { setGenreUI.told = 1; setTimeout(() => toast('Tap the glow · hold & drag to glide'), 2500); }
     document.title = g.name + ' · Endless Music Machine';
   }
 
   // ---------- controls ----------
   function togglePlay() {
     if (!started) return start();
-    if (playing) { ctx.suspend(); playing = false; if (keepAlive) keepAlive.pause(); setBtn($('play'), 'Play'); }
+    if (playing) { glideStop(); ctx.suspend(); playing = false; if (keepAlive) keepAlive.pause(); setBtn($('play'), 'Play'); }
     else { unlockIOS(); ctx.resume(); playing = true; setBtn($('play'), 'Pause'); }
   }
   // the machine keeps evolving: a fresh hybrid genre every ~7 minutes while playing
@@ -237,13 +237,46 @@
     else if (e.key === 'n' || e.key === 'N') newGenre();
   });
 
-  // tap the glow: strike a note in the current key (chord-aware), with a ripple and (native) haptic
+  // tap the glow: strike a note in the current key (chord-aware), with a ripple and (native) haptic.
+  // hold & drag: the Glide Ribbon — a live scale-snapped portamento synth with a glowing comet trail.
+  const NOTE = ['C', 'D♭', 'D', 'E♭', 'E', 'F', 'G♭', 'G', 'A♭', 'A', 'B♭', 'B'];
+  const GL = { id: null, x0: 0, y0: 0, t0: 0, on: false, trail: [], blooms: [], hold: 0, lastVib: 0 };
+  V.glide = GL;
+  function glideBegin(x, y) {
+    if (GL.on || !eng || !eng.glideStart) return;
+    GL.on = true; const m = eng.glideStart(x / W, 1 - y / H); bloom(x, y, m, 1.4);
+    if (!glideBegin.told) { glideBegin.told = 1; toast('〰 Glide Ribbon · drag left/right for pitch, up for shine'); }
+  }
+  function bloom(x, y, m, big) { GL.blooms.push({ x, y, txt: NOTE[((m % 12) + 12) % 12], a: 1, s: big || 1 }); if (GL.blooms.length > 24) GL.blooms.shift(); }
+  function glideStop() {
+    clearTimeout(GL.hold); GL.id = null;
+    if (GL.on) { GL.on = false; if (eng) eng.glideEnd(); }
+  }
   $('pad').addEventListener('pointerdown', e => {
     if (!started || !playing || !eng) return;
     eng.strike(e.clientX / W, 1 - e.clientY / H);
     V.taps.push({ x: e.clientX, y: e.clientY, r: 0, a: .9 });
     if (!isIOS) haptic('soft');
+    if (GL.id !== null) return; // one ribbon at a time; extra fingers still strike notes
+    GL.id = e.pointerId; GL.x0 = e.clientX; GL.y0 = e.clientY; GL.trail.length = 0;
+    try { $('pad').setPointerCapture(e.pointerId); } catch (er) {}
+    clearTimeout(GL.hold); GL.hold = setTimeout(() => { if (GL.id !== null) glideBegin(GL.x0, GL.y0); }, 200);
   });
+  $('pad').addEventListener('pointermove', e => {
+    if (e.pointerId !== GL.id || !eng) return;
+    if (!GL.on && Math.hypot(e.clientX - GL.x0, e.clientY - GL.y0) > 14) glideBegin(e.clientX, e.clientY);
+    if (!GL.on) return;
+    GL.trail.push({ x: e.clientX, y: e.clientY, life: 1 }); if (GL.trail.length > 90) GL.trail.shift();
+    const r = eng.glideMove(e.clientX / W, 1 - e.clientY / H);
+    if (r && r.changed) {
+      bloom(e.clientX, e.clientY, r.m);
+      const now = performance.now();
+      if (Hap.on && canVibrate && now - GL.lastVib > 55) { GL.lastVib = now; try { navigator.vibrate(5); } catch (er) {} }
+    }
+  });
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => $('pad').addEventListener(ev, e => { if (e.pointerId === GL.id) glideStop(); }));
+  addEventListener('blur', glideStop);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) glideStop(); });
 
   // record clip (canvas video + audio if possible, else audio only)
   let rec = null, recChunks = [], recTimer;
@@ -416,7 +449,32 @@
       if (s.life <= 0) { V.sparks.splice(i, 1); continue; }
       g2.fillStyle = hsa(c3, s.life * .7, 6); g2.fillRect(s.x, s.y, 2, 2);
     }
+    drawRibbon(dt, c1, c2, c3);
     if (V.flash > .02) { g2.fillStyle = hsa(c1, V.flash * .06, -8); g2.fillRect(0, 0, W, H); }
+  }
+  function drawRibbon(dt, c1, c2, c3) {
+    const tr = GL.trail;
+    for (let i = tr.length - 1; i >= 0; i--) { tr[i].life -= dt * (GL.on ? .9 : 2.2); if (tr[i].life <= 0) tr.splice(i, 1); }
+    if (tr.length > 1) {
+      g2.lineCap = 'round'; g2.lineJoin = 'round';
+      for (let pass = 0; pass < 2; pass++) {
+        for (let i = 1; i < tr.length; i++) {
+          const a = tr[i - 1], b = tr[i], k = i / tr.length, life = Math.min(a.life, b.life), wob = Math.sin(performance.now() / 90 + i * .6) * (2 + V.level * 10);
+          const h = lerpH(c1[0], c2[0], k), col = pass ? `hsla(${h.toFixed(1)},90%,88%,${(life * .9).toFixed(3)})` : `hsla(${h.toFixed(1)},${c1[1].toFixed(0)}%,${c1[2].toFixed(0)}%,${(life * .22).toFixed(3)})`;
+          g2.strokeStyle = col; g2.lineWidth = pass ? 1.5 + k * 3.5 : 10 + k * 26 + V.bass * 20;
+          g2.beginPath(); g2.moveTo(a.x, a.y + (pass ? 0 : wob)); g2.lineTo(b.x, b.y + (pass ? 0 : wob)); g2.stroke();
+        }
+      }
+      if (GL.on) { const h = tr[tr.length - 1], r = 16 + V.bass * 30 + Math.sin(performance.now() / 70) * 3;
+        const gr = g2.createRadialGradient(h.x, h.y, 0, h.x, h.y, r * 2.4); gr.addColorStop(0, hsa(c3, .65, 6)); gr.addColorStop(.35, hsa(c2, .25)); gr.addColorStop(1, 'rgba(0,0,0,0)');
+        g2.fillStyle = gr; g2.beginPath(); g2.arc(h.x, h.y, r * 2.4, 0, 7); g2.fill(); }
+    }
+    g2.textAlign = 'center'; g2.textBaseline = 'middle';
+    for (let i = GL.blooms.length - 1; i >= 0; i--) {
+      const b = GL.blooms[i]; b.a -= dt * 1.1; b.y -= dt * 46; if (b.a <= 0) { GL.blooms.splice(i, 1); continue; }
+      g2.font = `700 ${Math.round(15 * b.s + (1 - b.a) * 8)}px -apple-system,system-ui,sans-serif`;
+      g2.fillStyle = hsa(c3, b.a * .95, 8); g2.fillText(b.txt, b.x, b.y - 30);
+    }
   }
   function idle(now) {
     const [c1, c2, c3, bg] = pal.cur;

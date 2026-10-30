@@ -1,0 +1,1 @@
+- 2026-10-30: Glide Ribbon — hold & drag on the glow to play a live scale-snapped portamento synth (x = pitch, y = shine/vibrato) with a glowing comet trail and floating note names.

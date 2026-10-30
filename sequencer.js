@@ -269,6 +269,51 @@
     const t = this.ctx.currentTime + .01; this.leadNote(kind, m, t, .55, .8, 'arp'); this.emit('arp', t, m);
   };
 
+  // ---------- Glide Ribbon: hold & drag on the glow to play a live, scale-snapped portamento synth ----------
+  // x = pitch (snaps to the current key's scale, slides between notes), y = brightness + vibrato. Instrumental only.
+  P._glidePitch = function (u) {
+    const g = this.g, sc = this.scale || [0, 2, 4, 7, 9], n = sc.length, pc = (g.root + (this.keyOff || 0)) % 12;
+    const tonic = 48 + ((pc + 5) % 12) - 5, deg = Math.max(0, Math.min(n * 3 - 1, Math.floor(clamp(u, 0, .9999) * n * 3)));
+    return tonic + sc[deg % n] + 12 * Math.floor(deg / n);
+  };
+  P.glideStart = function (u, v) {
+    if (this.gl) this.glideEnd();
+    const c = this.ctx, t = c.currentTime, m = this._glidePitch(u), f = 440 * Math.pow(2, (m - 69) / 12);
+    const out = this.gain(0), lp = this.biq('lowpass', 900, 7), pn = this.pan((u - .5) * 1.2), sh = c.createWaveShaper();
+    const cur = new Float32Array(1024); for (let i = 0; i < 1024; i++) { const x = i / 511.5 - 1; cur[i] = Math.tanh(x * 1.8) / Math.tanh(1.8); } sh.curve = cur;
+    lp.connect(sh); sh.connect(out); out.connect(pn); pn.connect(this.busLead);
+    const echo = this.gain(.35); out.connect(echo); echo.connect(this.dlyIn); // extra delay throw for the ribbon
+    const vib = c.createOscillator(), vg = this.gain(0); vib.frequency.value = 5.4; vib.connect(vg);
+    const oscs = [['sawtooth', 1, -7, .5], ['sawtooth', 1, 7, .5], ['square', .5, 0, .28], ['sine', 2, 3, .22]].map(([type, mul, det, lvl]) => {
+      const o = c.createOscillator(), og = this.gain(lvl); o.type = type; o.frequency.value = f * mul; o.detune.value = det; vg.connect(o.detune); o.connect(og); og.connect(lp); o.start(t); return { o, mul };
+    });
+    vib.start(t);
+    out.gain.setValueAtTime(0, t); out.gain.linearRampToValueAtTime(.2, t + .05);
+    this.gl = { oscs, vib, vg, lp, out, pn, echo, m };
+    this.glideMove(u, v, true);
+    return m;
+  };
+  P.glideMove = function (u, v, first) {
+    const s = this.gl; if (!s) return null;
+    const c = this.ctx, t = c.currentTime, m = this._glidePitch(u), f = 440 * Math.pow(2, (m - 69) / 12);
+    const glide = first ? .005 : .045;
+    s.oscs.forEach(({ o, mul }) => o.frequency.setTargetAtTime(f * mul, t, glide));
+    const vv = clamp(v, 0, 1), mood = this.mood || .5;
+    s.lp.frequency.setTargetAtTime(380 * Math.pow(2, vv * 4.4 + mood * .6), t, .06);
+    s.vg.gain.setTargetAtTime(6 + vv * vv * 38, t, .12);
+    if (s.pn.pan) s.pn.pan.setTargetAtTime((u - .5) * 1.2, t, .1);
+    const changed = m !== s.m; s.m = m;
+    if (changed && !first) this.emit('glide', t, m);
+    return { m, changed };
+  };
+  P.glideEnd = function () {
+    const s = this.gl; if (!s) return; this.gl = null;
+    const c = this.ctx, t = c.currentTime;
+    s.out.gain.cancelScheduledValues(t); s.out.gain.setValueAtTime(s.out.gain.value, t); s.out.gain.setTargetAtTime(0, t, .16);
+    s.oscs.forEach(({ o }) => { try { o.stop(t + 1.2); } catch (e) {} }); try { s.vib.stop(t + 1.2); } catch (e) {}
+    setTimeout(() => { try { s.out.disconnect(); s.echo.disconnect(); s.pn.disconnect(); } catch (e) {} }, 1600);
+  };
+
   // ---------- surprises: rare, unexpected events that keep it from feeling like a loop ----------
   P._surprise = function (t, bd) {
     const g = this.g, r = Math.random, S = this.S;

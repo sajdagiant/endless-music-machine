@@ -19,7 +19,7 @@
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:var(--font);overflow:hidden;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;overscroll-behavior:none;touch-action:manipulation}
 canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
-#pad{position:fixed;inset:0;z-index:1;display:block}
+#pad{position:fixed;inset:0;z-index:1;display:block;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 #pad input{position:absolute;width:1px;height:1px;margin:0;visibility:hidden}
 #ui{position:fixed;inset:0;z-index:2;display:flex;flex-direction:column;justify-content:space-between;padding:max(14px,env(safe-area-inset-top)) 18px max(18px,env(safe-area-inset-bottom));pointer-events:none}
 #ui>*{pointer-events:none}
@@ -95,7 +95,7 @@ input[type=range]::-moz-range-thumb{width:26px;height:26px;border:0;border-radiu
       <button id="rec" class="rec">● Clip</button>
       <button id="wav">↓ WAV</button>
     </div>
-    <div id="hint">Tap the glow to play a note · <span class="kbd">Space play/pause · N new genre ·</span> instrumental</div>
+    <div id="hint">Tap the glow to play a note · hold &amp; drag for the Glide Ribbon · <span class="kbd">Space play/pause · N new genre ·</span> instrumental</div>
   </div>
 </div>
 <div id="start"><h1>Endless<br>Music<br>Machine</h1><p>Invented genres · never repeats · no vocals</p><div class="go"></div><label class="chipbtn" id="hapL0"><span>Haptics</span><input id="hap0" type="checkbox" switch></label></div>
