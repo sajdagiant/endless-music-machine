@@ -206,7 +206,7 @@
       metaG = g; renderMeta(g.key, g.scaleName);
       h.classList.remove('swap');
     }, 280);
-    pal.tgt = pickScheme(g);
+    if (!(V.ghosts && V.ghosts.witch)) pal.tgt = pickScheme(g);
     if (!setGenreUI.told) { setGenreUI.told = 1; setTimeout(() => toast('Tap the glow · hold & drag to glide'), 2500); }
     document.title = g.name + ' · Endless Music Machine';
   }
@@ -214,7 +214,7 @@
   // ---------- controls ----------
   function togglePlay() {
     if (!started) return start();
-    if (playing) { glideStop(); ctx.suspend(); playing = false; if (keepAlive) keepAlive.pause(); setBtn($('play'), 'Play'); }
+    if (playing) { glideStop(); ghostsHush(); ctx.suspend(); playing = false; if (keepAlive) keepAlive.pause(); setBtn($('play'), 'Play'); }
     else { unlockIOS(); ctx.resume(); playing = true; setBtn($('play'), 'Pause'); }
   }
   // the machine keeps evolving: a fresh hybrid genre every ~7 minutes while playing
@@ -254,6 +254,7 @@
   }
   $('pad').addEventListener('pointerdown', e => {
     if (!started || !playing || !eng) return;
+    const gh = ghostHit(e.clientX, e.clientY); if (gh) { ghostCatch(gh); return; }
     eng.strike(e.clientX / W, 1 - e.clientY / H);
     V.taps.push({ x: e.clientX, y: e.clientY, r: 0, a: .9 });
     if (!isIOS) haptic('soft');
@@ -276,7 +277,90 @@
   });
   ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => $('pad').addEventListener(ev, e => { if (e.pointerId === GL.id) glideStop(); }));
   addEventListener('blur', glideStop);
-  document.addEventListener('visibilitychange', () => { if (document.hidden) glideStop(); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { glideStop(); ghostsHush(); } });
+
+  // ---------- Ghost Hunt: theremin ghosts drift through the glow; tap one to burst it into a haunted organ chord ----------
+  // every 5th catch summons the Witching Hour (bell tolls, a pumpkin/poison palette, a swarm of ghosts). Instrumental only.
+  const today = new Date(), HALLOWEEN = today.getMonth() === 9 && today.getDate() >= 24;
+  const WITCH = [[28, 96, 60], [118, 80, 58], [276, 72, 70], [272, 50, 5]];
+  const GH = { list: [], bats: [], caught: 0, next: 0, witch: 0, witchTimer: 0 };
+  V.ghosts = GH;
+  if (HALLOWEEN) { const p = document.querySelector('#start p'); if (p) p.textContent = 'Invented genres · no vocals · 🎃 ghosts are out tonight'; }
+  function ghostSpawn() {
+    if (!eng || !eng.ghostHum || GH.list.length >= (GH.witch ? 5 : 3)) return;
+    const fromL = Math.random() < .5, s = 30 + Math.random() * 18 + (W > 600 ? 12 : 0);
+    const g = { x: fromL ? -s : W + s, y: H * (.14 + Math.random() * .42), vx: (fromL ? 1 : -1) * (18 + Math.random() * 26) * (W > 600 ? 1.6 : 1), ph: Math.random() * 7, s, t: 0, life: 10 + Math.random() * 6, a: 0, dead: 0 };
+    g.hum = eng.ghostHum(g.x / W, 1 - g.y / H); GH.list.push(g);
+    if (!ghostSpawn.told) { ghostSpawn.told = 1; toast('👻 A ghost is humming · tap it to catch'); }
+  }
+  function ghostUpdate(dt) {
+    if (!playing) return;
+    const now = ctx.currentTime;
+    if (!GH.next) GH.next = now + (HALLOWEEN ? 4 : 20);
+    if (now > GH.next) { ghostSpawn(); GH.next = now + (GH.witch ? 1.5 + Math.random() * 2.5 : HALLOWEEN ? 7 + Math.random() * 8 : 14 + Math.random() * 16); }
+    for (let i = GH.list.length - 1; i >= 0; i--) {
+      const g = GH.list[i]; g.t += dt;
+      if (g.dead) { g.dead -= dt * 2.4; if (g.dead <= 0) GH.list.splice(i, 1); continue; }
+      g.x += g.vx * dt; g.y += Math.sin(g.t * 1.7 + g.ph) * 22 * dt;
+      g.a = Math.min(1, g.t / 1.2, Math.max(0, (g.life - g.t) / 1.5));
+      if (g.hum && (i + (V.gf = (V.gf || 0) + 1)) % 6 === 0) g.hum.move(g.x / W, 1 - g.y / H);
+      if (g.t > g.life || g.x < -g.s * 3 || g.x > W + g.s * 3) { if (g.hum) g.hum.stop(); GH.list.splice(i, 1); }
+    }
+  }
+  function ghostsHush() { GH.list.forEach(g => g.hum && g.hum.stop()); GH.list.length = 0; }
+  function ghostHit(x, y) {
+    for (let i = GH.list.length - 1; i >= 0; i--) { const g = GH.list[i]; if (!g.dead && g.a > .2 && Math.hypot(x - g.x, y - g.y) < g.s * 1.35) return g; }
+    return null;
+  }
+  function ghostCatch(g) {
+    g.dead = 1; if (g.hum) g.hum.stop(true);
+    GH.caught++; const big = GH.caught % 5 === 0;
+    const m = eng.ghostCatch(g.x / W, 1 - g.y / H, big);
+    const n = big ? 26 : 12;
+    for (let k = 0; k < n; k++) { const a = Math.random() * Math.PI * 2, sp = 90 + Math.random() * 220; GH.bats.push({ x: g.x, y: g.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 60, life: 1, s: 6 + Math.random() * 8, f: Math.random() * 7 }); }
+    GL.blooms.push({ x: g.x, y: g.y + 10, txt: big ? 'BOO!!' : 'boo', a: 1, s: big ? 2.4 : 1.6 });
+    V.taps.push({ x: g.x, y: g.y, r: 0, a: 1 }); V.flash = Math.min(1, V.flash + (big ? .9 : .35));
+    haptic('hard'); $('ghosts').textContent = '👻 ' + GH.caught; $('ghosts').classList.add('show', 'pop'); setTimeout(() => $('ghosts').classList.remove('pop'), 260);
+    if (big) {
+      GH.witch = 1; pal.tgt = WITCH.map(c => c.slice()); toast('🕯 Witching Hour'); GH.next = ctx.currentTime + 1;
+      clearTimeout(GH.witchTimer); GH.witchTimer = setTimeout(() => { GH.witch = 0; if (eng) pal.tgt = pickScheme(eng.g); }, 24000);
+    } else if (GH.caught === 1) toast('Caught one · 5 summons the Witching Hour');
+    return m;
+  }
+  function drawGhosts(dt, c1, c2, c3) {
+    const tnow = performance.now() / 1000;
+    for (const g of GH.list) {
+      const al = g.dead ? Math.max(0, g.dead) : g.a, s = g.s * (g.dead ? 1 + (1 - g.dead) * .9 : 1 + Math.sin(g.t * 3) * .03 + V.kick * .06);
+      if (al <= 0) continue;
+      g2.save(); g2.translate(g.x, g.y); g2.rotate(Math.sin(g.t * 1.3 + g.ph) * .12 + (g.vx > 0 ? .06 : -.06));
+      const halo = g2.createRadialGradient(0, 0, 0, 0, 0, s * 2.4); halo.addColorStop(0, hsa(GH.witch ? WITCH[1] : c3, .3 * al, 10)); halo.addColorStop(1, 'rgba(0,0,0,0)');
+      g2.fillStyle = halo; g2.beginPath(); g2.arc(0, 0, s * 2.4, 0, 7); g2.fill();
+      g2.beginPath(); g2.moveTo(-s * .78, s * .15); g2.arc(0, -s * .1, s * .78, Math.PI, 0);
+      g2.lineTo(s * .78, s * .9);
+      for (let k = 0; k <= 4; k++) { const xx = s * .78 - k * s * .39, yy = s * .9 + Math.sin(tnow * 7 + k * 1.7 + g.ph) * s * .12 + (k % 2 ? -s * .16 : 0); g2.lineTo(xx, yy); }
+      g2.closePath();
+      g2.fillStyle = `rgba(240,236,255,${(.55 * al).toFixed(3)})`; g2.shadowColor = hsa(c1, .9); g2.shadowBlur = 18; g2.fill(); g2.shadowBlur = 0;
+      g2.globalCompositeOperation = 'source-over';
+      g2.fillStyle = `rgba(8,6,16,${(.85 * al).toFixed(3)})`;
+      const blink = Math.sin(tnow * 1.1 + g.ph * 3) > .97 ? .15 : 1, eyeDx = g.vx > 0 ? s * .08 : -s * .08;
+      g2.beginPath(); g2.ellipse(-s * .26 + eyeDx, -s * .18, s * .1, s * .15 * blink, 0, 0, 7); g2.ellipse(s * .26 + eyeDx, -s * .18, s * .1, s * .15 * blink, 0, 0, 7); g2.fill();
+      g2.beginPath(); g2.ellipse(eyeDx, s * .2, s * .1, s * (.1 + .08 * Math.abs(Math.sin(tnow * 2.4 + g.ph))), 0, 0, 7); g2.fill(); // "oooo"
+      g2.globalCompositeOperation = 'lighter';
+      g2.restore();
+    }
+    for (let i = GH.bats.length - 1; i >= 0; i--) {
+      const b = GH.bats[i]; b.life -= dt * .8; if (b.life <= 0) { GH.bats.splice(i, 1); continue; }
+      b.vx *= Math.pow(.4, dt); b.vy = b.vy * Math.pow(.4, dt) - 40 * dt; b.x += b.vx * dt; b.y += b.vy * dt; b.f += dt * 22;
+      const w = Math.sin(b.f) * .7, s = b.s;
+      g2.fillStyle = hsa(GH.witch ? WITCH[0] : c2, b.life * .9, 4);
+      g2.beginPath(); g2.moveTo(b.x, b.y);
+      g2.quadraticCurveTo(b.x - s * .6, b.y - s * (.2 + w), b.x - s * 1.3, b.y - s * w * .6); g2.quadraticCurveTo(b.x - s * .7, b.y + s * .1, b.x, b.y + s * .25);
+      g2.quadraticCurveTo(b.x + s * .7, b.y + s * .1, b.x + s * 1.3, b.y - s * w * .6); g2.quadraticCurveTo(b.x + s * .6, b.y - s * (.2 + w), b.x, b.y);
+      g2.fill();
+    }
+    if (GH.bats.length > 200) GH.bats.splice(0, 60);
+  }
+  window.__ghost = { spawn: ghostSpawn, catch: () => GH.list[0] && ghostCatch(GH.list[0]), GH };
 
   // record clip (canvas video + audio if possible, else audio only)
   let rec = null, recChunks = [], recTimer;
@@ -361,6 +445,7 @@
     updatePalette(dt);
     if (!started) { idle(now); return; }
     if (playing) handleEvents();
+    ghostUpdate(dt);
     eng.analyser.getByteFrequencyData(freq);
     eng.analyser.getByteTimeDomainData(wave);
     V.kick *= Math.pow(.003, dt); V.flash *= Math.pow(.02, dt);
@@ -449,6 +534,7 @@
       if (s.life <= 0) { V.sparks.splice(i, 1); continue; }
       g2.fillStyle = hsa(c3, s.life * .7, 6); g2.fillRect(s.x, s.y, 2, 2);
     }
+    drawGhosts(dt, c1, c2, c3);
     drawRibbon(dt, c1, c2, c3);
     if (V.flash > .02) { g2.fillStyle = hsa(c1, V.flash * .06, -8); g2.fillRect(0, 0, W, H); }
   }

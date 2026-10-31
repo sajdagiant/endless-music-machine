@@ -314,6 +314,66 @@
     setTimeout(() => { try { s.out.disconnect(); s.echo.disconnect(); s.pn.disconnect(); } catch (e) {} }, 1600);
   };
 
+  // ---------- Ghost Hunt: wandering theremin ghosts hum chord tones; tap one to burst it into a haunted pipe-organ chord ----------
+  // Instrumental only: pure oscillators (sine/triangle theremin, additive organ pipes, inharmonic bell).
+  P._ghostOut = function (pan, verb) {
+    const out = this.gain(0), pn = this.pan(pan), v = this.gain(verb); out.connect(pn); pn.connect(this.busLead); pn.connect(v); v.connect(this.verbIn);
+    const d = this.gain(.25); pn.connect(d); d.connect(this.dlyIn); return { out, pn, v, d };
+  };
+  P.ghostHum = function (u, v) {
+    const c = this.ctx, t = c.currentTime, vo = (this.voicing || [60, 64, 67]).slice().sort((a, b) => a - b);
+    let m = vo[Math.floor(Math.random() * vo.length)] + 12; while (m > 86) m -= 12; while (m < 70) m += 12;
+    const f = 440 * Math.pow(2, (m - 69) / 12), o = this._ghostOut((u - .5) * 1.6, .9);
+    const lp = this.biq('lowpass', 2600, .5); lp.connect(o.out);
+    const vib = c.createOscillator(), vg = this.gain(22 + Math.random() * 20); vib.frequency.value = 4.6 + Math.random() * 2; vib.connect(vg);
+    const sw = c.createOscillator(), sg = this.gain(60); sw.frequency.value = .13 + Math.random() * .12; sw.connect(sg); // slow eerie swoop ±60 cents
+    const oscs = [['sine', 1, .9], ['triangle', 1.002, .22], ['sine', 2, .06]].map(([ty, mul, lv]) => {
+      const os = c.createOscillator(), g = this.gain(lv); os.type = ty; os.frequency.setValueAtTime(f * mul * .7, t); os.frequency.exponentialRampToValueAtTime(f * mul, t + .9); // swoops in from below
+      vg.connect(os.detune); sg.connect(os.detune); os.connect(g); g.connect(lp); os.start(t); return os;
+    });
+    vib.start(t); sw.start(t);
+    o.out.gain.setValueAtTime(0, t); o.out.gain.linearRampToValueAtTime(.032, t + 1.4);
+    const self = this, h = { m, alive: true,
+      move(uu, vv) { if (!h.alive) return; const tt = c.currentTime; if (o.pn.pan) o.pn.pan.setTargetAtTime(clamp((uu - .5) * 1.6, -1, 1), tt, .3); lp.frequency.setTargetAtTime(900 + vv * 3200, tt, .3); },
+      stop(fast) { if (!h.alive) return; h.alive = false; const tt = c.currentTime; o.out.gain.cancelScheduledValues(tt); o.out.gain.setValueAtTime(o.out.gain.value, tt);
+        if (fast) { oscs.forEach(os => os.frequency.exponentialRampToValueAtTime(os.frequency.value * 2.2, tt + .25)); o.out.gain.linearRampToValueAtTime(0, tt + .25); } else o.out.gain.setTargetAtTime(0, tt, .5);
+        const e = tt + (fast ? .4 : 3); oscs.forEach(os => { try { os.stop(e); } catch (er) {} }); try { vib.stop(e); sw.stop(e); } catch (er) {}
+        setTimeout(() => { try { o.out.disconnect(); o.pn.disconnect(); } catch (er) {} }, (e - tt) * 1000 + 600); } };
+    return h;
+  };
+  P.ghostCatch = function (u, v, big) {
+    const c = this.ctx, t = c.currentTime + .01, vo = (this.voicing || [60, 64, 67]).slice().sort((a, b) => a - b);
+    const notes = [vo[0] - 12].concat(vo, [vo[0] + 12]);
+    const o = this._ghostOut((u - .5) * .8, 1.2), dur = big ? 4.5 : 2.4, lv = big ? .1 : .075;
+    const lp = this.biq('lowpass', 5200, .4); lp.connect(o.out);
+    const trem = c.createOscillator(), tg = this.gain(.25); trem.frequency.value = 6.2; trem.connect(tg); const am = this.gain(.75); tg.connect(am.gain); am.connect(lp); // leslie-ish flutter
+    const ends = t + dur;
+    notes.forEach((m, i) => {
+      const f = 440 * Math.pow(2, (m - 69) / 12);
+      [[1, 1], [2, .55], [3, .28], [4, .3], [6, .12], [8, .1]].forEach(([mul, g0]) => { // drawbars 16'..2'
+        if (f * mul > 9000) return; const os = c.createOscillator(), g = this.gain(g0 / notes.length * 2.2); os.type = 'sine'; os.frequency.value = f * mul; os.detune.value = (i - 2) * 2.5; os.connect(g); g.connect(am); os.start(t + i * .018); os.stop(ends + .1);
+      });
+    });
+    trem.start(t); trem.stop(ends + .1);
+    o.out.gain.setValueAtTime(0, t); o.out.gain.linearRampToValueAtTime(lv, t + .04); o.out.gain.setTargetAtTime(lv * .6, t + .1, .4); o.out.gain.setTargetAtTime(0, ends - .6, .25);
+    setTimeout(() => { try { o.out.disconnect(); o.pn.disconnect(); } catch (e) {} }, (dur + 2.5) * 1000);
+    if (big) this.ghostBell(t + .05);
+    this.emit('arp', t, vo[0]);
+    return vo[0];
+  };
+  P.ghostBell = function (t0) { // Witching Hour: three deep inharmonic bell tolls
+    const c = this.ctx, root = 36 + (((this.chord ? this.chord.root : 60) % 12) + 12) % 12, f = 440 * Math.pow(2, (root - 69) / 12);
+    const o = this._ghostOut(0, 1.6); o.out.gain.value = .11;
+    for (let k = 0; k < 3; k++) {
+      const t = t0 + k * 1.6;
+      [[.5, .5, 7], [1, 1, 5], [1.19, .55, 3.2], [1.5, .4, 2.6], [2, .45, 2.2], [2.74, .3, 1.5], [3.76, .2, 1], [5.4, .12, .6]].forEach(([mul, g0, d]) => {
+        const os = c.createOscillator(), g = this.gain(0); os.type = 'sine'; os.frequency.value = f * mul * (1 + (Math.random() - .5) * .004); os.connect(g); g.connect(o.out);
+        g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(g0, t + .006); g.gain.exponentialRampToValueAtTime(.0005, t + d); os.start(t); os.stop(t + d + .05);
+      });
+    }
+    setTimeout(() => { try { o.out.disconnect(); o.pn.disconnect(); } catch (e) {} }, 12000);
+  };
+
   // ---------- surprises: rare, unexpected events that keep it from feeling like a loop ----------
   P._surprise = function (t, bd) {
     const g = this.g, r = Math.random, S = this.S;
