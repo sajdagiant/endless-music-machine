@@ -172,6 +172,7 @@
       let t = this.nextTime;
       if (g.grid === 16 && g.swing > 0 && i % 2 === 1) t += g.swing * sd;
       this._step(i, t, sd);
+      if (this.stars && this.stars.on && this.stars.list.length) this._starStep(t);
       this.gStep = (this.gStep || 0) + 1;
       this.nextTime += sd; this.stepInBar++;
       if (this.stepInBar >= g.steps) { this.stepInBar = 0; this.bar++; this.secBar++; this.cycleBar++; }
@@ -372,6 +373,48 @@
       });
     }
     setTimeout(() => { try { o.out.disconnect(); o.pn.disconnect(); } catch (e) {} }, 12000);
+  };
+
+  // ---------- Star Loop: tap stars into a 2-bar constellation that loops forever and re-harmonises to every chord ----------
+  // each star stores only its loop position + screen spot (u,v); its pitch is re-derived from the CURRENT chord/scale on every pass,
+  // so your little riff follows key changes and genre switches. Voice: glassy 2-op FM celesta. Instrumental only.
+  P.starLen = function () { return this.g.steps * 2; };
+  P.starPhase = function (at) { // loop position 0..1 at audio time `at`
+    const sd = this.stepDur(), k = (this.gStep || 0) - (this.nextTime - (at == null ? this.ctx.currentTime : at)) / sd, L = this.starLen();
+    return (((k % L) + L) % L) / L;
+  };
+  P.starToggle = function (on) { if (!this.stars) this.stars = { on: false, list: [] }; this.stars.on = on; if (!on) this.stars.list.length = 0; return this.stars; };
+  P._starPitch = function (u, v) {
+    const sc = this.scale || [0, 2, 4, 7, 9], n = sc.length, deg = Math.round(clamp(u, 0, 1) * n * 1.6) + Math.round(clamp(v, 0, 1) * n * .9) - 1;
+    let m = this._melodyNote ? this._melodyNote(deg, 0, 1) + 12 : 72; while (m > 98) m -= 12; while (m < 64) m += 12; return m;
+  };
+  P.starBell = function (m, t, vel, u) {
+    const c = this.ctx, f = 440 * Math.pow(2, (m - 69) / 12), o = this._ghostOut((u - .5) * 1.4, .7), dur = 1.6 + vel;
+    const car = c.createOscillator(), mod = c.createOscillator(), mg = this.gain(0), oct = c.createOscillator(), og = this.gain(0), env = this.gain(0);
+    car.frequency.value = f; mod.frequency.value = f * 3.5; oct.frequency.value = f * 2.01; oct.type = 'triangle';
+    mod.connect(mg); mg.connect(car.frequency); car.connect(env); oct.connect(og); og.connect(env); env.connect(o.out); o.out.gain.value = .085 * vel;
+    mg.gain.setValueAtTime(f * 2.4, t); mg.gain.exponentialRampToValueAtTime(f * .05, t + .35); // bright glassy strike → pure sine tail
+    env.gain.setValueAtTime(0, t); env.gain.linearRampToValueAtTime(1, t + .004); env.gain.exponentialRampToValueAtTime(.0008, t + dur);
+    og.gain.setValueAtTime(.18, t); og.gain.exponentialRampToValueAtTime(.001, t + .5);
+    [car, mod, oct].forEach(x => { x.start(t); x.stop(t + dur + .05); });
+    setTimeout(() => { try { o.out.disconnect(); o.pn.disconnect(); } catch (e) {} }, (t - c.currentTime + dur + 2.5) * 1000);
+  };
+  P.starTap = function (u, v) {
+    const st = this.stars || this.starToggle(true), t = this.ctx.currentTime + .01, m = this._starPitch(u, v);
+    this.starBell(m, t, .9, u);
+    if (!st.on) return { m };
+    const L = this.starLen(), pos = Math.round(this.starPhase(t) * L) % L, star = { frac: pos / L, u, v, m, id: (this._starId = (this._starId || 0) + 1) };
+    st.list.push(star); if (st.list.length > 24) st.list.shift();
+    this.emit('star', t, { id: star.id, m, rec: 1 });
+    return { m, frac: star.frac, id: star.id };
+  };
+  P._starStep = function (t) {
+    const L = this.starLen(), idx = (this.gStep || 0) % L;
+    this.stars.list.forEach(s => {
+      if (Math.round(s.frac * L) % L !== idx) return;
+      const m = this._starPitch(s.u, s.v); s.m = m;
+      this.starBell(m, t, .55 + .25 * (this.mood || .5), s.u); this.emit('star', t, { id: s.id, m });
+    });
   };
 
   // ---------- surprises: rare, unexpected events that keep it from feeling like a loop ----------

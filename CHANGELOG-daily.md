@@ -1,2 +1,3 @@
 - 2026-10-30: Glide Ribbon — hold & drag on the glow to play a live scale-snapped portamento synth (x = pitch, y = shine/vibrato) with a glowing comet trail and floating note names.
 - 2026-10-31: Ghost Hunt 🎃 — theremin-humming ghosts drift through the glow; tap one to burst it into a haunted pipe-organ chord with a bat swarm, and every 5th catch summons the Witching Hour (deep bell tolls, pumpkin/poison palette, ghost swarm).
+- 2026-11-01: Star Loop ✦ — toggle Loop and tap the glow to plant glassy FM-celesta stars into a 2-bar constellation that loops forever, re-harmonises to every chord/key/genre change, flares on each replay with a sweeping orbit hand and shooting-star planting (L key).

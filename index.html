@@ -48,6 +48,7 @@ button.primary{flex:1.1;max-width:180px;background:linear-gradient(100deg,var(--
 #new{flex:1;max-width:200px}
 .row.small{gap:8px}
 .row.small button,.row.small .chipbtn{min-height:42px;font-size:12.5px;padding:0 14px;color:var(--dim)}
+button.loop.on{background:linear-gradient(100deg,var(--c3),var(--c1));border-color:transparent;color:var(--on);box-shadow:0 0 22px -4px var(--c3)}
 button.rec.on{background:hsl(352 80% 62%);border-color:transparent;color:#fff;animation:pulse 1.2s infinite}
 @keyframes pulse{50%{box-shadow:0 0 24px hsl(352 80% 62% / .7)}}
 .chipbtn{cursor:pointer;user-select:none;-webkit-user-select:none}
@@ -75,7 +76,7 @@ input[type=range]::-moz-range-thumb{width:26px;height:26px;border:0;border-radiu
 #start .chipbtn{min-height:44px;font-size:13px;color:var(--dim)}
 #toast{position:fixed;left:50%;bottom:calc(max(18px,env(safe-area-inset-bottom)) + 232px);transform:translate(-50%,6px);z-index:5;background:rgba(14,14,20,.78);border:1px solid var(--line);padding:9px 16px;border-radius:99px;font-size:12.5px;font-weight:600;letter-spacing:.02em;opacity:0;transition:.35s;pointer-events:none;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);white-space:nowrap}
 #toast.show{opacity:1;transform:translate(-50%,0)}
-@media (max-width:520px){.row.small button,.row.small .chipbtn{padding:0 11px}#center{margin-top:min(33vh,300px)}}
+@media (max-width:520px){.row.small button,.row.small .chipbtn{padding:0 10px}.row.small{gap:6px}#center{margin-top:min(33vh,300px)}}
 @media (hover:none){#hint .kbd{display:none}}
 @media (max-height:860px){#hint{display:none}}
 </style>
@@ -94,10 +95,11 @@ input[type=range]::-moz-range-thumb{width:26px;height:26px;border:0;border-radiu
     </div>
     <div class="row small">
       <label class="chipbtn" id="hapL"><span>Haptics</span><input id="hap" type="checkbox" switch></label>
+      <button id="loop" class="loop" aria-pressed="false">✦ Loop</button>
       <button id="rec" class="rec">● Clip</button>
       <button id="wav">↓ WAV</button>
     </div>
-    <div id="hint">Tap the glow to play a note · hold &amp; drag for the Glide Ribbon · tap ghosts 👻 · <span class="kbd">Space play/pause · N new genre ·</span> instrumental</div>
+    <div id="hint">Tap the glow to play a note · hold &amp; drag for the Glide Ribbon · ✦ Loop plants looping stars · tap ghosts 👻 · <span class="kbd">Space play/pause · N new genre ·</span> instrumental</div>
   </div>
 </div>
 <div id="start"><h1>Endless<br>Music<br>Machine</h1><p>Invented genres · never repeats · no vocals</p><div class="go"></div><label class="chipbtn" id="hapL0"><span>Haptics</span><input id="hap0" type="checkbox" switch></label></div>

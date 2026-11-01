@@ -235,6 +235,7 @@
   addEventListener('keydown', e => {
     if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
     else if (e.key === 'n' || e.key === 'N') newGenre();
+    else if (e.key === 'l' || e.key === 'L') starToggle();
   });
 
   // tap the glow: strike a note in the current key (chord-aware), with a ripple and (native) haptic.
@@ -255,7 +256,7 @@
   $('pad').addEventListener('pointerdown', e => {
     if (!started || !playing || !eng) return;
     const gh = ghostHit(e.clientX, e.clientY); if (gh) { ghostCatch(gh); return; }
-    eng.strike(e.clientX / W, 1 - e.clientY / H);
+    if (ST.on && eng.starTap) starPlant(e.clientX, e.clientY); else eng.strike(e.clientX / W, 1 - e.clientY / H);
     V.taps.push({ x: e.clientX, y: e.clientY, r: 0, a: .9 });
     if (!isIOS) haptic('soft');
     if (GL.id !== null) return; // one ribbon at a time; extra fingers still strike notes
@@ -278,6 +279,66 @@
   ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => $('pad').addEventListener(ev, e => { if (e.pointerId === GL.id) glideStop(); }));
   addEventListener('blur', glideStop);
   document.addEventListener('visibilitychange', () => { if (document.hidden) { glideStop(); ghostsHush(); } });
+
+  // ---------- Star Loop: plant stars by tapping; they loop every 2 bars as a living constellation and follow the chords ----------
+  const ST = { on: false, flare: {}, shoot: [], dust: [], pulse: 0 };
+  V.stars = ST;
+  function starToggle() {
+    if (!started || !eng || !eng.starToggle) return;
+    ST.on = !ST.on;
+    if (!ST.on) { // scatter the constellation into stardust
+      const L = (eng.stars && eng.stars.list) || [];
+      L.forEach(s => { const p = ST.pos && ST.pos[s.id]; if (!p) return; for (let k = 0; k < 9; k++) { const a = Math.random() * 7, sp = 60 + Math.random() * 200; ST.dust.push({ x: p.x, y: p.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 1 }); } });
+    }
+    eng.starToggle(ST.on);
+    $('loop').classList.toggle('on', ST.on); $('loop').setAttribute('aria-pressed', ST.on);
+    toast(ST.on ? '✦ Star Loop · tap the glow to plant stars — they loop & follow the chords' : '✦ Constellation released');
+    haptic(ST.on ? 'hard' : 'soft');
+  }
+  $('loop').addEventListener('click', starToggle);
+  function starPlant(x, y) {
+    const r = eng.starTap(x / W, 1 - y / H); if (!r || r.id == null) return;
+    ST.shoot.push({ x, y, id: r.id, t: 0 }); bloom(x, y, r.m, 1.2);
+    const n = eng.stars.list.length; $('loop').dataset.n = n; if (n === 1) toast('★ First star · it will come back every 2 bars');
+  }
+  function starPos(s, cx, cy, R) {
+    const a = s.frac * Math.PI * 2 - Math.PI / 2, rr = R * 1.55 + 18 + s.v * Math.min(W, H) * .16;
+    return { x: cx + Math.cos(a) * rr, y: cy + Math.sin(a) * rr };
+  }
+  function drawStars(dt, cx, cy, R, c1, c2, c3, now) {
+    for (let i = ST.dust.length - 1; i >= 0; i--) { const d = ST.dust[i]; d.x += d.vx * dt; d.y += d.vy * dt; d.vy += 40 * dt; d.life -= dt * .9; if (d.life <= 0) { ST.dust.splice(i, 1); continue; } g2.fillStyle = hsa(c3, d.life * .9, 10); g2.fillRect(d.x - 1, d.y - 1, 2.4, 2.4); }
+    if (!ST.on || !eng.stars) return;
+    const list = eng.stars.list, ph = eng.starPhase(), pos = ST.pos = {};
+    // orbit + sweeping hand
+    const orb = R * 1.55 + 18 + Math.min(W, H) * .08, ha = ph * Math.PI * 2 - Math.PI / 2;
+    g2.setLineDash([2, 7]); g2.strokeStyle = hsa(c3, .22); g2.lineWidth = 1; g2.beginPath(); g2.arc(cx, cy, orb, 0, 7); g2.stroke(); g2.setLineDash([]);
+    for (let k = 0; k < 14; k++) { const a = ha - k * .045; g2.strokeStyle = hsa(c3, .2 * (1 - k / 14)); g2.lineWidth = 2; g2.beginPath(); g2.moveTo(cx + Math.cos(a) * R * 1.1, cy + Math.sin(a) * R * 1.1); g2.lineTo(cx + Math.cos(a) * (orb + Math.min(W, H) * .1), cy + Math.sin(a) * (orb + Math.min(W, H) * .1)); g2.stroke(); }
+    // constellation lines in loop order
+    const sorted = list.slice().sort((a, b) => a.frac - b.frac);
+    sorted.forEach(s => pos[s.id] = starPos(s, cx, cy, R));
+    if (sorted.length > 1) {
+      g2.strokeStyle = hsa(c2, .28 + V.bass * .3); g2.lineWidth = 1.1; g2.beginPath();
+      sorted.forEach((s, i) => { const p = pos[s.id]; i ? g2.lineTo(p.x, p.y) : g2.moveTo(p.x, p.y); }); if (sorted.length > 2) g2.closePath(); g2.stroke();
+    }
+    g2.textAlign = 'center'; g2.textBaseline = 'middle';
+    sorted.forEach(s => {
+      const p = pos[s.id], f = ST.flare[s.id] || 0, tw = .6 + .4 * Math.sin(now / 260 + s.id * 2.3), r = 2.4 + f * 9 + tw * 1.2;
+      if (f > 0) ST.flare[s.id] = f * Math.pow(.02, dt);
+      const gr = g2.createRadialGradient(p.x, p.y, 0, p.x, p.y, r * 4.5); gr.addColorStop(0, hsa(c3, .9, 14)); gr.addColorStop(.3, hsa(c1, .35 + f * .4)); gr.addColorStop(1, 'rgba(0,0,0,0)');
+      g2.fillStyle = gr; g2.beginPath(); g2.arc(p.x, p.y, r * 4.5, 0, 7); g2.fill();
+      g2.strokeStyle = `hsla(0,0%,100%,${(.35 + f * .6).toFixed(3)})`; g2.lineWidth = 1; const sp = r * (1.6 + f * 2.4);
+      g2.beginPath(); g2.moveTo(p.x - sp, p.y); g2.lineTo(p.x + sp, p.y); g2.moveTo(p.x, p.y - sp); g2.lineTo(p.x, p.y + sp); g2.stroke();
+      if (f > .3) { g2.font = '600 11px -apple-system,system-ui,sans-serif'; g2.fillStyle = hsa(c3, f, 10); g2.fillText(NOTE[((s.m % 12) + 12) % 12], p.x, p.y - 14 - f * 6); }
+    });
+    // shooting stars from your finger to their place in the sky
+    for (let i = ST.shoot.length - 1; i >= 0; i--) {
+      const sh = ST.shoot[i], p = pos[sh.id]; sh.t += dt * 2.2; if (!p || sh.t >= 1) { ST.shoot.splice(i, 1); if (p) ST.flare[sh.id] = 1; continue; }
+      const e = 1 - Math.pow(1 - sh.t, 3), x = sh.x + (p.x - sh.x) * e, y = sh.y + (p.y - sh.y) * e, bx = sh.x + (p.x - sh.x) * Math.max(0, e - .25), by = sh.y + (p.y - sh.y) * Math.max(0, e - .25);
+      const lg = g2.createLinearGradient(bx, by, x, y); lg.addColorStop(0, 'rgba(0,0,0,0)'); lg.addColorStop(1, hsa(c3, .95, 12));
+      g2.strokeStyle = lg; g2.lineWidth = 3; g2.lineCap = 'round'; g2.beginPath(); g2.moveTo(bx, by); g2.lineTo(x, y); g2.stroke();
+    }
+  }
+  window.__stars = { toggle: starToggle, plant: starPlant, ST };
 
   // ---------- Ghost Hunt: theremin ghosts drift through the glow; tap one to burst it into a haunted organ chord ----------
   // every 5th catch summons the Witching Hour (bell tolls, a pumpkin/poison palette, a swarm of ghosts). Instrumental only.
@@ -425,6 +486,7 @@
           V.parts.push({ x: 0, y: 0, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 1, c: e.type === 'lead' ? 2 : 3, s: e.type === 'lead' ? 3 : 1.6, ang });
         }
       }
+      else if (e.type === 'star') { ST.flare[e.data.id] = 1; if (!e.data.rec) { const p = ST.pos && ST.pos[e.data.id]; if (p) V.taps.push({ x: p.x, y: p.y, r: 0, a: .45 }); if (++ST.pulse % 4 === 1) haptic('tick'); } }
       else if (e.type === 'hat') { if (Math.random() < .45) V.sparks.push({ x: Math.random() * W, y: Math.random() * H, life: 1 }); }
       else if (e.type === 'genre') { setGenreUI(e.data); V.flash = 1; haptic('hard'); }
       else if (e.type === 'key') { renderMeta(e.data.key, e.data.mode); haptic('soft'); }
@@ -535,6 +597,7 @@
       g2.fillStyle = hsa(c3, s.life * .7, 6); g2.fillRect(s.x, s.y, 2, 2);
     }
     drawGhosts(dt, c1, c2, c3);
+    drawStars(dt, cx, cy, R, c1, c2, c3, now);
     drawRibbon(dt, c1, c2, c3);
     if (V.flash > .02) { g2.fillStyle = hsa(c1, V.flash * .06, -8); g2.fillRect(0, 0, W, H); }
   }
