@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Endless Music Machine</title>
+<meta name="emm-build" content="2026-11-02-marble-garden">
 <meta name="theme-color" content="#07080c">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -45,7 +46,7 @@ button,.chipbtn{position:relative;font:inherit;font-size:14px;font-weight:620;le
 button:hover,.chipbtn:hover{border-color:color-mix(in srgb,var(--c1) 70%,transparent)}
 button:active,.chipbtn:active{transform:scale(.965)}
 button.primary{flex:1.1;max-width:180px;background:linear-gradient(100deg,var(--c1),var(--c2));border:0;color:var(--on);font-weight:750;box-shadow:0 8px 30px -8px var(--c1)}
-#new{flex:1;max-width:200px}
+#new{flex:1;max-width:200px}#marb{flex:.9;max-width:150px;padding:0 14px}@media (max-width:520px){.row:not(.small) button{padding:0 12px}}
 .row.small{gap:8px}
 .row.small button,.row.small .chipbtn{min-height:42px;font-size:12.5px;padding:0 14px;color:var(--dim)}
 button.loop.on{background:linear-gradient(100deg,var(--c3),var(--c1));border-color:transparent;color:var(--on);box-shadow:0 0 22px -4px var(--c3)}
@@ -92,6 +93,7 @@ input[type=range]::-moz-range-thumb{width:26px;height:26px;border:0;border-radiu
     <div class="row">
       <button id="play" class="primary">Pause</button>
       <button id="new">New genre</button>
+      <button id="marb" class="loop" aria-pressed="false">◉ Marbles</button>
     </div>
     <div class="row small">
       <label class="chipbtn" id="hapL"><span>Haptics</span><input id="hap" type="checkbox" switch></label>
@@ -99,7 +101,7 @@ input[type=range]::-moz-range-thumb{width:26px;height:26px;border:0;border-radiu
       <button id="rec" class="rec">● Clip</button>
       <button id="wav">↓ WAV</button>
     </div>
-    <div id="hint">Tap the glow to play a note · hold &amp; drag for the Glide Ribbon · ✦ Loop plants looping stars · tap ghosts 👻 · <span class="kbd">Space play/pause · N new genre ·</span> instrumental</div>
+    <div id="hint">Tap the glow to play a note · hold &amp; drag for the Glide Ribbon · ✦ Loop plants looping stars · ◉ Marbles bounce on a floor-xylophone (tilt to steer) · tap ghosts 👻 · <span class="kbd">Space play/pause · N new genre · M marbles ·</span> instrumental</div>
   </div>
 </div>
 <div id="start"><h1>Endless<br>Music<br>Machine</h1><p>Invented genres · never repeats · no vocals</p><div class="go"></div><label class="chipbtn" id="hapL0"><span>Haptics</span><input id="hap0" type="checkbox" switch></label></div>

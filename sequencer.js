@@ -417,6 +417,47 @@
     });
   };
 
+  // ---------- Marble Garden: fling glowing marbles that bounce on a glowing floor-xylophone and ping off the orb ----------
+  // floor bars are the current scale laid out over two octaves (always in key, follows key/genre changes); the orb rings a chord-tone
+  // handpan. Real physics timing → natural bouncing-ball accelerandos. Voices: modal rosewood marimba, steel handpan, wood "tok". Instrumental only.
+  P.marbleBars = function () { return (this.scale || [0, 2, 4, 7, 9]).length * 2 + 1; };
+  P._marblePitch = function (i) {
+    const g = this.g, sc = this.scale || [0, 2, 4, 7, 9], n = sc.length, pc = ((g.root + (this.keyOff || 0)) % 12 + 12) % 12;
+    const tonic = 60 + ((pc + 5) % 12) - 5; i = Math.max(0, i | 0); return tonic + sc[i % n] + 12 * Math.floor(i / n);
+  };
+  P._marbleOut = function (pan, verb, lvl) {
+    const out = this.gain(lvl), pn = this.pan(pan), v = this.gain(verb); out.connect(pn); pn.connect(this.busArp); pn.connect(v); v.connect(this.verbIn);
+    return { out, pn, v };
+  };
+  P.marimba = function (m, t, vel, u) { // modal bar: tuned partials 1 : 3.93 : 9.87 + felt-mallet click, lower notes ring longer
+    const c = this.ctx, f = 440 * Math.pow(2, (m - 69) / 12), o = this._marbleOut((u - .5) * 1.5, .35, .16 * vel), ring = clamp(1.5 - (m - 55) / 40, .45, 1.5);
+    [[1, 1, ring], [3.93, .34 * (.5 + vel), ring * .22], [9.87, .12 * vel, ring * .07], [2.01, .05, ring * .4]].forEach(([mul, g0, d]) => {
+      if (f * mul > 15000) return; const os = c.createOscillator(), g = this.gain(0); os.frequency.value = f * mul; os.connect(g); g.connect(o.out);
+      g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(g0, t + .002); g.gain.exponentialRampToValueAtTime(.0004, t + d); os.start(t); os.stop(t + d + .05);
+    });
+    const ns = c.createBufferSource(), bp = this.biq('bandpass', 1800 + vel * 2200, 1.4), ng = this.gain(0); ns.buffer = this.noiseBuf; ns.connect(bp); bp.connect(ng); ng.connect(o.out);
+    ng.gain.setValueAtTime(.5 * vel, t); ng.gain.exponentialRampToValueAtTime(.001, t + .018); ns.start(t, Math.random()); ns.stop(t + .03);
+    setTimeout(() => { try { o.out.disconnect(); o.pn.disconnect(); } catch (e) {} }, (t - c.currentTime + ring + 1.5) * 1000);
+  };
+  P.handpan = function (m, t, vel, u) { // steel tongue: fundamental + octave + compound fifth, soft metallic shimmer and slow beating
+    const c = this.ctx, f = 440 * Math.pow(2, (m - 69) / 12), o = this._marbleOut((u - .5) * 1.2, .8, .1 * vel), d = 2.6;
+    [[1, 1, d, 0], [2, .42, d * .6, 1.5], [3, .2, d * .35, -2], [1.003, .5, d * .9, 0], [5.02, .05, .3, 0]].forEach(([mul, g0, dd, det]) => {
+      const os = c.createOscillator(), g = this.gain(0); os.frequency.value = f * mul; os.detune.value = det; os.connect(g); g.connect(o.out);
+      g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(g0, t + .005); g.gain.exponentialRampToValueAtTime(.0004, t + dd); os.start(t); os.stop(t + dd + .05);
+    });
+    setTimeout(() => { try { o.out.disconnect(); o.pn.disconnect(); } catch (e) {} }, (t - c.currentTime + d + 2) * 1000);
+  };
+  P.marbleHit = function (kind, u, vel, idx) { // kind: 'bar' | 'orb' | 'tok'
+    const t = this.ctx.currentTime + .005; vel = clamp(vel, .08, 1);
+    this._mbNow = this._mbNow || []; this._mbNow = this._mbNow.filter(x => t - x < .25); if (this._mbNow.length > 7) return null; this._mbNow.push(t); // voice budget
+    let m;
+    if (kind === 'bar') { m = this._marblePitch(idx); this.marimba(m, t, vel, u); this.emit('arp', t, m); }
+    else if (kind === 'orb') { const vo = (this.voicing || [60, 64, 67]).slice().sort((a, b) => a - b); m = vo[(idx >>> 0) % vo.length] + 12; while (m > 84) m -= 12; while (m < 62) m += 12; this.handpan(m, t, vel, u); this.emit('lead', t, m); }
+    else { m = 84 + (idx % 5) * 2; const c = this.ctx, o = this._marbleOut((u - .5), .2, .05 * vel), os = c.createOscillator(), g = this.gain(0); os.type = 'triangle'; os.frequency.setValueAtTime(1900 + (idx % 5) * 140, t); os.frequency.exponentialRampToValueAtTime(1300, t + .04); os.connect(g); g.connect(o.out); g.gain.setValueAtTime(1, t); g.gain.exponentialRampToValueAtTime(.001, t + .06); os.start(t); os.stop(t + .08); setTimeout(() => { try { o.out.disconnect(); } catch (e) {} }, 600); }
+    this.marbleHits = (this.marbleHits || 0) + 1;
+    return m;
+  };
+
   // ---------- surprises: rare, unexpected events that keep it from feeling like a loop ----------
   P._surprise = function (t, bd) {
     const g = this.g, r = Math.random, S = this.S;

@@ -1,7 +1,7 @@
 # Endless Music Machine
 Invented, never-repeating **instrumental** music in the browser. Pure Web Audio, no dependencies, no sample files.
 Run: `./serve.sh` (or `python3 -m http.server 8080`) → open http://localhost:8080 and tap start.
-Keys: Space play/pause, N new genre. Tap the glow to play a note in the current key.
+Keys: Space play/pause, N new genre, L star loop, M marbles. Tap the glow to play a note in the current key.
 
 ## How it works
 - `dsp.js` – drum-kit synthesis rendered to buffers (pitch-enveloped kicks, snappy snares/claps, metallic hats, ride, toms, congas…, round-robin snare/hat variants), generated convolution reverbs (3-band decay, early reflections, short drum room).

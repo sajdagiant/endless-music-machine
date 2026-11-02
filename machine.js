@@ -139,7 +139,7 @@
     let t = el.querySelector('.t'); if (!t) { t = document.createElement('span'); t.className = 't'; el.insertBefore(t, el.firstChild); }
     t.textContent = txt;
   }
-  ['play', 'new', 'rec', 'wav'].forEach(id => { const b = $(id), txt = b.textContent.trim(); b.textContent = ''; setBtn(b, txt); });
+  ['play', 'new', 'marb', 'rec', 'wav'].forEach(id => { const b = $(id), txt = b.textContent.trim(); b.textContent = ''; setBtn(b, txt); });
 
   // ---------- haptics ----------
   // Android: navigator.vibrate. iOS Safari has no vibrate API: native taps on a hidden <input type=checkbox switch> give a haptic tick
@@ -236,6 +236,7 @@
     if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
     else if (e.key === 'n' || e.key === 'N') newGenre();
     else if (e.key === 'l' || e.key === 'L') starToggle();
+    else if (e.key === 'm' || e.key === 'M') marbleToggle();
   });
 
   // tap the glow: strike a note in the current key (chord-aware), with a ripple and (native) haptic.
@@ -256,6 +257,7 @@
   $('pad').addEventListener('pointerdown', e => {
     if (!started || !playing || !eng) return;
     const gh = ghostHit(e.clientX, e.clientY); if (gh) { ghostCatch(gh); return; }
+    if (MB.on) { if (!MB.hold) marbleGrab(e); if (!isIOS) haptic('soft'); return; }
     if (ST.on && eng.starTap) starPlant(e.clientX, e.clientY); else eng.strike(e.clientX / W, 1 - e.clientY / H);
     V.taps.push({ x: e.clientX, y: e.clientY, r: 0, a: .9 });
     if (!isIOS) haptic('soft');
@@ -265,6 +267,7 @@
     clearTimeout(GL.hold); GL.hold = setTimeout(() => { if (GL.id !== null) glideBegin(GL.x0, GL.y0); }, 200);
   });
   $('pad').addEventListener('pointermove', e => {
+    if (MB.hold && e.pointerId === MB.hold.id) { const b = MB.hold.b; b.x = e.clientX; b.y = e.clientY; b.samp.push({ x: b.x, y: b.y, t: performance.now() }); if (b.samp.length > 12) b.samp.shift(); return; }
     if (e.pointerId !== GL.id || !eng) return;
     if (!GL.on && Math.hypot(e.clientX - GL.x0, e.clientY - GL.y0) > 14) glideBegin(e.clientX, e.clientY);
     if (!GL.on) return;
@@ -276,7 +279,7 @@
       if (Hap.on && canVibrate && now - GL.lastVib > 55) { GL.lastVib = now; try { navigator.vibrate(5); } catch (er) {} }
     }
   });
-  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => $('pad').addEventListener(ev, e => { if (e.pointerId === GL.id) glideStop(); }));
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => $('pad').addEventListener(ev, e => { if (MB.hold && e.pointerId === MB.hold.id) marbleRelease(); if (e.pointerId === GL.id) glideStop(); }));
   addEventListener('blur', glideStop);
   document.addEventListener('visibilitychange', () => { if (document.hidden) { glideStop(); ghostsHush(); } });
 
@@ -339,6 +342,138 @@
     }
   }
   window.__stars = { toggle: starToggle, plant: starPlant, ST };
+
+  // ---------- Marble Garden: fling glowing marbles; they bounce on a floor-xylophone (always in key) and ping off the orb ----------
+  // tilt the iPhone to tilt gravity (DeviceOrientation, permission asked on the toggle tap). Real bounces → natural accelerando rhythms.
+  const MB = { on: false, list: [], glow: [], vis: 0, gx: 0, gy: 1, tilt: false, hold: null, sparks: [], hits: 0, hue: 0 };
+  V.marbles = MB;
+  const MG = 1500; // px/s² gravity
+  function onTilt(e) {
+    if (e.gamma == null || e.beta == null) return;
+    const rad = Math.PI / 180, ang = (screen.orientation && screen.orientation.angle) || window.orientation || 0;
+    let gx = Math.sin(clampN(e.gamma, -90, 90) * rad), gy = Math.sin(clampN(e.beta, -90, 90) * rad);
+    if (ang === 90) [gx, gy] = [gy, -gx]; else if (ang === -90 || ang === 270) [gx, gy] = [-gy, gx];
+    const l = Math.hypot(gx, gy); if (l < .18) { gx = 0; gy = .35; } // phone flat → a gentle default pull
+    MB.gx += (gx - MB.gx) * .3; MB.gy += (gy - MB.gy) * .3; MB.tilt = true;
+  }
+  function clampN(x, a, b) { return Math.max(a, Math.min(b, x)); }
+  function marbleToggle() {
+    if (!started || !eng || !eng.marbleHit) return;
+    MB.on = !MB.on;
+    if (MB.on && !MB.tiltAsked) { // iOS 13+: motion permission must be requested inside the tap
+      MB.tiltAsked = 1;
+      try {
+        const DOE = window.DeviceOrientationEvent;
+        if (DOE && typeof DOE.requestPermission === 'function') DOE.requestPermission().then(s => { if (s === 'granted') addEventListener('deviceorientation', onTilt); }).catch(() => {});
+        else if (DOE) addEventListener('deviceorientation', onTilt);
+      } catch (e) {}
+    }
+    if (!MB.on) MB.list.forEach(b => b.pop = b.pop || 1);
+    $('marb').classList.toggle('on', MB.on); $('marb').setAttribute('aria-pressed', MB.on);
+    toast(MB.on ? '◉ Marble Garden · tap to drop, flick to throw' + (isIOS || canVibrate ? ' · tilt to steer' : '') : '◉ Marbles away');
+    haptic(MB.on ? 'hard' : 'soft');
+  }
+  $('marb').addEventListener('click', marbleToggle);
+  function marbleAdd(x, y) {
+    const r = (W > 600 ? 11 : 9) + Math.random() * 3, ch = [0, 1, 2][MB.hue++ % 3];
+    const b = { x, y, vx: (Math.random() - .5) * 40, vy: 0, r, ch, t: 0, rest: 0, pop: 0, trail: [], held: true, samp: [] };
+    MB.list.push(b); if (MB.list.length > 14) { const o = MB.list.find(q => !q.pop && !q.held); if (o) o.pop = 1; }
+    if (MB.list.length > 20) MB.list.shift();
+    if (!marbleAdd.told) { marbleAdd.told = 1; setTimeout(() => toast('Bounce them on the glowing bars · hit the orb for a chord'), 900); }
+    return b;
+  }
+  function marbleGeom() {
+    const n = eng.marbleBars ? eng.marbleBars() : 15, floor = H * .74, bw = W / n;
+    return { n, floor, bw };
+  }
+  function marbleStep(dt, cx, cy, R) {
+    if (!MB.list.length) return;
+    const { n, floor, bw } = marbleGeom(), orbR = R * 1.12, ax = MB.gx * MG, ay = MB.gy * MG, sub = 3, h = dt / sub;
+    for (let i = MB.list.length - 1; i >= 0; i--) { const b = MB.list[i]; if (b.pop) { b.pop -= dt * 2.6; if (b.pop <= 0) MB.list.splice(i, 1); } }
+    for (const b of MB.list) {
+      b.t += dt;
+      if (b.held) { b.trail.push({ x: b.x, y: b.y }); if (b.trail.length > 10) b.trail.shift(); continue; }
+      if (b.pop) continue;
+      for (let s = 0; s < sub; s++) {
+        b.vx += ax * h; b.vy += ay * h; b.vx *= 1 - .08 * h; b.x += b.vx * h; b.y += b.vy * h;
+        // floor xylophone
+        if (b.y + b.r > floor && b.vy > 0) {
+          const imp = b.vy; b.y = floor - b.r; b.vy = -imp * .76; b.vx *= .985;
+          if (imp > 70) { const k = clampN(Math.floor(b.x / bw), 0, n - 1); marbleSound('bar', b, imp, k); MB.glow[k] = Math.min(1.4, (MB.glow[k] || 0) + .5 + imp / 1400); }
+        }
+        // ceiling only when gravity points up (tilted), otherwise sky is open
+        if (b.y - b.r < 0 && ay < 0 && b.vy < 0) { b.y = b.r; b.vy = -b.vy * .7; }
+        // walls
+        if (b.x - b.r < 0 && b.vx < 0) { b.x = b.r; const imp = -b.vx; b.vx = imp * .72; if (imp > 160) marbleSound('tok', b, imp * .5, 1); }
+        if (b.x + b.r > W && b.vx > 0) { b.x = W - b.r; const imp = b.vx; b.vx = -imp * .72; if (imp > 160) marbleSound('tok', b, imp * .5, 3); }
+        // the orb: a steel handpan
+        const dx = b.x - cx, dy = b.y - cy, d = Math.hypot(dx, dy), md = orbR + b.r;
+        if (d < md && d > .01) {
+          const nx = dx / d, ny = dy / d, vn = b.vx * nx + b.vy * ny;
+          b.x = cx + nx * md; b.y = cy + ny * md;
+          if (vn < 0) { b.vx -= 1.84 * vn * nx; b.vy -= 1.84 * vn * ny; if (-vn > 80) { const sector = Math.floor(((Math.atan2(ny, nx) + Math.PI) / (Math.PI * 2)) * 6); marbleSound('orb', b, -vn, sector); V.kick = Math.max(V.kick, .5 + Math.min(.5, -vn / 1600)); MB.orbFlash = 1; } }
+        }
+      }
+      const sp = Math.hypot(b.vx, b.vy);
+      b.rest = (sp < 40 && b.y + b.r >= floor - 2) ? b.rest + dt : 0;
+      if (b.rest > .8 || b.t > 22 || b.y > H + 200 || b.y < -H * 2) b.pop = 1;
+      b.trail.push({ x: b.x, y: b.y }); if (b.trail.length > 10) b.trail.shift();
+    }
+    // marble ↔ marble (elastic, wood "tok")
+    const L = MB.list;
+    for (let i = 0; i < L.length; i++) for (let j = i + 1; j < L.length; j++) {
+      const b = L[i], o = L[j]; if (b.pop || o.pop) continue;
+      const dx = o.x - b.x, dy = o.y - b.y, d = Math.hypot(dx, dy), md = o.r + b.r;
+      if (d >= md || d < .01) continue;
+      const nx = dx / d, ny = dy / d, rv = (o.vx - b.vx) * nx + (o.vy - b.vy) * ny, ov = (md - d) / 2;
+      if (!b.held) { b.x -= nx * ov; b.y -= ny * ov; } if (!o.held) { o.x += nx * ov; o.y += ny * ov; }
+      if (rv < 0) { const jj = -rv * .92; if (!b.held) { b.vx -= jj * nx; b.vy -= jj * ny; } if (!o.held) { o.vx += jj * nx; o.vy += jj * ny; } if (-rv > 140) marbleSound('tok', b, -rv * .6, MB.hits % 5); }
+    }
+  }
+  function marbleSound(kind, b, imp, idx) {
+    const vel = Math.min(1, imp / 1300), m = eng.marbleHit(kind, b.x / W, vel, idx);
+    if (m == null) return; MB.hits++;
+    for (let k = 0; k < 3 + vel * 6; k++) { const a = Math.random() * 7, s = 40 + Math.random() * 160 * vel; MB.sparks.push({ x: b.x, y: b.y + (kind === 'bar' ? b.r : 0), vx: Math.cos(a) * s, vy: Math.sin(a) * s - (kind === 'bar' ? 60 : 0), life: .8, ch: b.ch }); }
+    if (kind !== 'tok' && vel > .55) bloom(b.x, b.y, m, .8);
+    if (vel > .45) haptic(kind === 'orb' ? 'tick' : 'soft');
+  }
+  function drawMarbles(dt, cx, cy, R, c1, c2, c3) {
+    MB.vis += ((MB.on || MB.list.length ? 1 : 0) - MB.vis) * Math.min(1, dt * 4);
+    if (MB.vis < .01) return;
+    const C = [c1, c2, c3], { n, floor, bw } = marbleGeom(), sc = (eng.scale || [0, 2, 4, 7, 9]).length;
+    // the floor xylophone: one glowing bar per scale step; octave roots taller
+    for (let i = 0; i < n; i++) {
+      const gl = MB.glow[i] || 0; if (gl > 0) MB.glow[i] = Math.max(0, gl - dt * 2.2);
+      const root = i % sc === 0, x = i * bw + 2, w = bw - 4, hh = (root ? 13 : 9) + gl * 10, col = C[i % sc === 0 ? 2 : i % 2];
+      const a = MB.vis * (.22 + gl * .7);
+      g2.fillStyle = hsa(col, a, gl * 14); roundRect(x, floor, w, hh, 4); g2.fill();
+      if (gl > .05) { const gr = g2.createRadialGradient(x + w / 2, floor, 0, x + w / 2, floor, bw * 1.6 + gl * 30); gr.addColorStop(0, hsa(col, gl * .35 * MB.vis, 12)); gr.addColorStop(1, 'rgba(0,0,0,0)'); g2.fillStyle = gr; g2.fillRect(x - bw * 2, floor - bw * 2 - 30, bw * 5, bw * 4 + 60); }
+    }
+    if (MB.orbFlash > .02) { g2.strokeStyle = hsa(c3, MB.orbFlash * .7, 10); g2.lineWidth = 3 * MB.orbFlash; g2.beginPath(); g2.arc(cx, cy, R * 1.12, 0, 7); g2.stroke(); MB.orbFlash *= Math.pow(.01, dt); }
+    for (let i = MB.sparks.length - 1; i >= 0; i--) { const s = MB.sparks[i]; s.life -= dt * 1.6; if (s.life <= 0) { MB.sparks.splice(i, 1); continue; } s.vy += 300 * dt; s.x += s.vx * dt; s.y += s.vy * dt; g2.fillStyle = hsa(C[s.ch], s.life, 14); g2.fillRect(s.x - 1.2, s.y - 1.2, 2.6, 2.6); }
+    if (MB.sparks.length > 300) MB.sparks.splice(0, 100);
+    for (const b of MB.list) {
+      const al = b.pop ? Math.max(0, b.pop) : 1, col = C[b.ch], r = b.r * (b.pop ? 1 + (1 - b.pop) * 1.5 : 1);
+      for (let k = 1; k < b.trail.length; k++) { const p = b.trail[k - 1], q = b.trail[k], f = k / b.trail.length; g2.strokeStyle = hsa(col, f * .35 * al); g2.lineWidth = r * 1.4 * f; g2.lineCap = 'round'; g2.beginPath(); g2.moveTo(p.x, p.y); g2.lineTo(q.x, q.y); g2.stroke(); }
+      const halo = g2.createRadialGradient(b.x, b.y, 0, b.x, b.y, r * 3.2); halo.addColorStop(0, hsa(col, .45 * al, 8)); halo.addColorStop(1, 'rgba(0,0,0,0)'); g2.fillStyle = halo; g2.beginPath(); g2.arc(b.x, b.y, r * 3.2, 0, 7); g2.fill();
+      const body = g2.createRadialGradient(b.x - r * .35, b.y - r * .4, r * .1, b.x, b.y, r); body.addColorStop(0, `rgba(255,255,255,${(.95 * al).toFixed(3)})`); body.addColorStop(.35, hsa(col, .9 * al, 6)); body.addColorStop(1, hsa(col, .5 * al, -20));
+      g2.fillStyle = body; g2.beginPath(); g2.arc(b.x, b.y, r, 0, 7); g2.fill();
+      if (b.held) { g2.strokeStyle = hsa(c3, .6); g2.lineWidth = 1.5; g2.setLineDash([3, 4]); g2.beginPath(); g2.arc(b.x, b.y, r + 7 + Math.sin(performance.now() / 120) * 2, 0, 7); g2.stroke(); g2.setLineDash([]); }
+    }
+  }
+  function roundRect(x, y, w, h, r) { g2.beginPath(); g2.moveTo(x + r, y); g2.lineTo(x + w - r, y); g2.quadraticCurveTo(x + w, y, x + w, y + r); g2.lineTo(x + w, y + h - r); g2.quadraticCurveTo(x + w, y + h, x + w - r, y + h); g2.lineTo(x + r, y + h); g2.quadraticCurveTo(x, y + h, x, y + h - r); g2.lineTo(x, y + r); g2.quadraticCurveTo(x, y, x + r, y); g2.closePath(); }
+  function marbleGrab(e) {
+    const b = marbleAdd(e.clientX, e.clientY); MB.hold = { id: e.pointerId, b };
+    b.samp.push({ x: e.clientX, y: e.clientY, t: performance.now() });
+    try { $('pad').setPointerCapture(e.pointerId); } catch (er) {}
+  }
+  function marbleRelease() {
+    const h = MB.hold; if (!h) return; MB.hold = null; const b = h.b, s = b.samp, now = performance.now();
+    let recent = s.filter(p => now - p.t < 110); if (recent.length < 2) recent = s.slice(-2); const a = recent[0], z = s[s.length - 1];
+    if (a && z && z.t - a.t > 4 && now - z.t < 160) { const k = 1000 / (z.t - a.t); b.vx = clampN((z.x - a.x) * k, -2600, 2600); b.vy = clampN((z.y - a.y) * k, -2600, 2600); }
+    b.held = false;
+  }
+  window.__marbles = { toggle: marbleToggle, add: (x, y, vx, vy) => { const b = marbleAdd(x, y); b.held = false; b.vx = vx || 0; b.vy = vy || 0; return b; }, MB };
 
   // ---------- Ghost Hunt: theremin ghosts drift through the glow; tap one to burst it into a haunted organ chord ----------
   // every 5th catch summons the Witching Hour (bell tolls, a pumpkin/poison palette, a swarm of ghosts). Instrumental only.
@@ -598,6 +733,7 @@
     }
     drawGhosts(dt, c1, c2, c3);
     drawStars(dt, cx, cy, R, c1, c2, c3, now);
+    marbleStep(dt, cx, cy, R); drawMarbles(dt, cx, cy, R, c1, c2, c3);
     drawRibbon(dt, c1, c2, c3);
     if (V.flash > .02) { g2.fillStyle = hsa(c1, V.flash * .06, -8); g2.fillRect(0, 0, W, H); }
   }
