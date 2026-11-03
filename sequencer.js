@@ -46,9 +46,9 @@
     return out;
   }
 
-  P.bpmNow = function () { return this.g.bpm * (.91 + this.mood * .17); }; // chill lays back ~9%, intense pushes ~8%
+  P.bpmNow = function () { const m = this.mood; return this.g.bpm * (m <= .5 ? .91 + m * .17 : .995 + .04 * (m - .5) * 2); }; // chill lays back ~9%; intense pushes at most +4% over mid
   // swing: chill gets lazier, intense gets straighter and tighter
-  P.swingNow = function () { const g = this.g, m = this.mood; return g.grid === 16 ? clamp(g.swing * (1.45 - .9 * m) + (1 - m) * .07, 0, .42) : 0; };
+  P.swingNow = function () { const g = this.g, m = Math.min(this.mood, .5), e = Math.max(0, (this.mood - .5) * 2); return g.grid === 16 ? clamp((g.swing * (1.45 - .9 * m) + (1 - m) * .07) * (1 - .45 * e), 0, .42) : 0; }; // intense = tighter
   P.stepDur = function () { return 60 / this.bpmNow() / (this.g.grid === 12 && this.g.steps === 12 ? 3 : 4); };
   P.barDur = function () { return this.stepDur() * this.g.steps; };
   P.emit = function (type, t, data) { if (this.onEvent) this.onEvent(type, t, data); };
@@ -158,7 +158,7 @@
   };
   P._announceKey = function (t) { this.emit('key', t, { key: T.KEYS[(this.g.root + this.keyOff) % 12], mode: this.mode }); };
   // Chill thins the band out (perc, arp, even hats drop away); Intense pulls extra layers in even in sparse sections
-  const MOOD_OFF = { hat: .08, perc: .3, arp: .36, tex: -1 }, MOOD_ON = { hat: .64, perc: .72, comp: .6, arp: .8, bass: .84, kick: .9, snare: .92, lead: .96 };
+  const MOOD_OFF = { hat: .08, perc: .3, arp: .36, tex: -1 }, MOOD_ON = { comp: .58, pad: .62, hat: .64, bass: .72, arp: .76, kick: .82, snare: .86 }; // intense: complementary layers, no extra clutter
   P.layerOn = function (l) {
     if (this.muted && this.muted[l]) return false; const m = this.mood;
     if (MOOD_OFF[l] != null && m < MOOD_OFF[l]) return false;
@@ -217,8 +217,8 @@
     // phrase-level: new lead statement every 2 bars
     if (this.secBar % 2 === 0) this._newStatement();
     // fill?
-    const fr = chance(this.r, .55), m = this.mood, fillBar = this.secBar % 4 === 3 || this.secBar === this.secLen - 1 || (m > .7 && this.secBar % 2 === 1);
-    this.fillNow = !!this.dset && this.layerOn('snare') && fillBar && !S.roll && (m < .2 ? false : m > .7 ? Math.random() < .45 + .55 * m : fr && Math.random() < .35 + m);
+    const fr = chance(this.r, .55), m = this.mood, fillBar = this.secBar % 4 === 3 || this.secBar === this.secLen - 1;
+    this.fillNow = !!this.dset && this.layerOn('snare') && fillBar && !S.roll && (m < .2 ? false : m <= .5 ? fr && Math.random() < .35 + m : fr && (this.secBar % 8 === 7 || this.secBar === this.secLen - 1 || Math.random() < .85 - .6 * (m - .5) * 2)); // intense: fewer, phrase-end fills
     if (m > .82 && this.dset && this.secBar % 8 === 0 && this.secBar > 0 && this.layerOn('kick')) this.hit('crash', t, .3 + .25 * m, { verb: .2 });
     this.fillKind = pick(this.r, ['snare', 'tom', 'snare']);
     // walking bass for this bar
@@ -246,7 +246,7 @@
     // pad: once per chord
     if ((this.chordStart || this.forcePad) && g.pad.kind && this.layerOn('pad')) {
       const len = Math.min(this.chordLen + .3, 16);
-      this.chordNote(g.pad.kind, this.voicing, t, len * (1.25 - .25 * this.mood), .9 * (1.12 - .42 * this.mood), 'pad');
+      const pm = Math.min(this.mood, .5); this.chordNote(g.pad.kind, this.voicing, t, len * (1.25 - .25 * pm), .9 * (1.12 - .42 * pm + .12 * Math.max(0, (this.mood - .5) * 2)), 'pad');
     }
     this.forcePad = false;
     // drone bass: once per chord
@@ -525,7 +525,7 @@
 
   // ---------- one step ----------
   P._step = function (i, t, sd) {
-    const g = this.g, S = this.S, L = l => this.layerOn(l), mood = this.mood, r = Math.random;
+    const g = this.g, S = this.S, L = l => this.layerOn(l), mood = this.mood, r = Math.random, mc = Math.min(mood, .5), en = Math.max(0, (mood - .5) * 2); // mc: chill-side curve, en: energy above mid
     const steps = g.steps, last = this.secBar === this.secLen - 1;
     const lastGrp = g.groups[g.groups.length - 1];
     const gap = (!!S.gap && last && i >= steps - lastGrp) || (this.vacUntil > 0 && t < this.vacUntil);
@@ -552,16 +552,15 @@
         const kc = kA[i]; let kv = vel(kc);
         const strongK = i === 0 || g.groups.reduce((a, gl) => { a.arr.push(a.p); a.p += gl; return a; }, { p: 0, arr: [] }).arr.includes(i);
         if (kv && !strongK && mood < .42 && r() < (.42 - mood) * 2.2) kv = 0;           // chill: only the important kicks
-        if (!kv && mood > .74 && g.grid === 16 && g.steps === 16 && (i % 4 === 0 || (i === 14 && r() < .5)) && r() < (mood - .74) * 3.2) kv = i % 4 === 0 ? .85 : .55; // intense: drive
-        if (kv && (D.kv >= 1 || r() < .7)) { this.hit('kick', tk, .95 * kv * D.kv * VH() * (.8 + .3 * mood), { rate: 1 + (r() - .5) * .02 }); this.duck(tk, clamp(g.duck * (.2 + 1.5 * mood) + .38 * mood * mood, 0, .86) * Math.min(1, kv), Math.min(.3, bt * (.75 - .25 * mood))); this.emit('kick', tk, kv); }
+        if (!kv && en > .3 && g.grid === 16 && g.steps === 16 && i % 4 === 0) kv = .85; // intense: tight four-on-the-floor
+        if (kv && (D.kv >= 1 || r() < .7)) { this.hit('kick', tk, .95 * kv * D.kv * VH() * (.8 + .3 * mc + .04 * en), { rate: 1 + (r() - .5) * .02 }); this.duck(tk, clamp(g.duck * (.2 + 1.5 * mc) + .38 * mc * mc + .12 * en, 0, .8) * Math.min(1, kv), Math.min(.3, bt * (.75 - .25 * mc))); this.emit('kick', tk, kv); }
       }
       // snare / clap
       const rolling = S.roll && L('snare');
       if (sA && L('snare') && !rolling) {
         const sc = sA[i], sv = vel(sc);
         if (sv && !(this.fillNow && i >= steps - lastGrp)) snareHit(sv * .95);
-        else if (mood > .25 && D.ghost.includes(i) && r() < mood * .85) snareHit(.2, { v: .22 + .1 * mood });
-        else if (mood > .8 && g.grid === 16 && i % 2 === 1 && r() < (mood - .8) * .9) snareHit(.2, { v: .18 }); // intense: extra ghost chatter
+        else if (mood > .25 && D.ghost.includes(i) && r() < mc * .85) snareHit(.2, { v: .22 + .1 * mc });
       }
       if (rolling) {
         const left = this.secLen - 1 - this.secBar, prog = (this.secBar * steps + i) / (this.secLen * steps);
@@ -583,12 +582,11 @@
         const thin = hc && hc !== '.' && mood < .5 && i % 4 !== 0 && r() < (.5 - mood) * 1.7; // chill: hats thin out
         if (hc && hc !== '.' && !thin) {
           let n = hc === 'r' ? 2 : hc === 't' ? 3 : hc === 'q' ? 4 : 1; const hv = (hc === 'r' || hc === 't' || hc === 'q') ? .7 : vel(hc);
-          if (n === 1 && mood > .76 && r() < (mood - .76) * .9) n = r() < .5 ? 2 : 3; // intense: ratchets
-          if (!(hc === 'o' && r() < .12)) for (let k = 0; k < n; k++) { this.hit('hat', th + k * sd / n, hv * (.8 + r() * .3) * (n > 1 ? (.75 + .25 * k / n) : 1), { pan: (r() - .5) * .5, rate: 1 + (r() - .5) * .03 }); }
+                    if (!(hc === 'o' && r() < .12)) for (let k = 0; k < n; k++) { this.hit('hat', th + k * sd / n, hv * (.8 + r() * .3) * (n > 1 ? (.75 + .25 * k / n) : 1), { pan: (r() - .5) * .5, rate: 1 + (r() - .5) * .03 }); }
           if (this.lastOH && hc !== 'o') { this.lastOH.gain.setTargetAtTime(0, t, .004); this.lastOH = null; }
           if (r() < .5) this.emit('hat', t, hv);
-        } else if (!thin && mood > .45 && r() < (mood - .45) * 1.25 && g.grid === 16) this.hit('hat', t, .22 + r() * .14 + .1 * mood, { pan: (r() - .5) * .5 }); // intense: fill in the 16ths
-        if (mood > .8 && g.grid === 16 && g.steps === 16 && i % 4 === 2 && !(D.oh && D.oh[i] !== '.') && r() < (mood - .8) * 3) this.lastOH = this.hit('ohat', t, .4, { pan: -.15 });
+        } else if (!thin && mood > .45 && g.grid === 16 && (en ? (i % 2 === 0 ? r() < .0625 + .7 * en : r() < .0625 + .25 * en) : r() < (mood - .45) * 1.25)) this.hit('hat', t, en ? (i % 2 === 0 ? .26 + .12 * en : .15) + r() * .05 : .22 + r() * .14 + .1 * mood, { pan: en ? (i % 4 - 1.5) * .25 : (r() - .5) * .5 }); // intense: steady, soft 16ths
+        if (en > .35 && g.grid === 16 && g.steps === 16 && i % 4 === 2 && !(D.oh && D.oh[i] !== '.')) this.lastOH = this.hit('ohat', t, .3 + .12 * en, { pan: -.15 }); // intense: offbeat open hat
       }
       if (D.oh && L('hat')) { const oc = D.oh[i]; if (oc && oc !== '.') { this.lastOH = this.hit('ohat', t, .55 * vel(oc) + .1, { pan: .15 }); } }
       if (D.rim && L('perc') && D.rim[i] !== '.' && r() < .9) this.hit('rim', t, .45 * vel(D.rim[i]) + .1, { pan: (r() - .5) * .6, verb: .12 });
@@ -596,42 +594,41 @@
       if (D.foot && L('hat') && D.foot[i] !== '.') this.hit('hat', t, .35, { rate: .8, pan: -.2 });
       if (D.bell && L('perc') && D.bell[i] !== '.') { const nm = (i % 2 === 0) ? 'agoH' : 'agoL'; this.hit(nm, t, .42 * (.8 + r() * .3), { pan: -.3, verb: .1 }); }
       if (D.comp && D.comp.length && L('snare') && D.comp.includes(i) && r() < .3 + mood * .25) this.hit('brush', t, .42 * (.6 + r() * .6), { pan: (r() - .5) * .4 });
-      if (L('perc')) D.perc.forEach(p => { const pc = p.arr[i]; if (pc && pc !== '.' && r() < .92 * (.35 + .75 * mood)) this.hit(p.n, t, p.v * vel(pc) * (.8 + r() * .3), { pan: (r() - .5) * .7, verb: .12, dly: .06 }); });
+      if (L('perc')) D.perc.forEach(p => { const pc = p.arr[i]; if (pc && pc !== '.' && r() < .92 * (.35 + .75 * mc + .1 * en)) this.hit(p.n, t, p.v * vel(pc) * (.8 + r() * .3), { pan: (r() - .5) * .7, verb: .12, dly: .06 }); });
     }
     // ---- bass ----
     if (!gap && g.bass.kind !== 'drone' && L('bass') && this.chord) {
       const bp = (this.secBar % 4 === 3 ? this.bassPat2 : this.bassPat)[i];
       if (bp && !(i !== 0 && mood < .45 && !g.bass.walk && r() < (.45 - mood) * 1.8)) { // chill: bass only on the essentials
         const lo = g.bass.walk ? 36 : g.bass.kind === '808' ? 27 : 28;
-        let m = this._bassMidi(bp.ch, this.chord, this.nextChord, lo); const d = Math.max(.08, bp.len * sd * (g.bass.kind === '808' || g.bass.kind === 'sub' ? .98 : .92) * (mood > .7 ? 1.2 - .4 * mood : 1));
-        if (mood > .7 && bp.len <= 2 && i % 2 === 1 && r() < (mood - .7) * 1.6) m += 12; // intense: octave pops
+        let m = this._bassMidi(bp.ch, this.chord, this.nextChord, lo); const d = Math.max(.08, bp.len * sd * (g.bass.kind === '808' || g.bass.kind === 'sub' ? .98 : .92) * (en ? 1 + .05 * en : 1));
+        if (en > .4 && bp.len <= 2 && i % 4 === 2 && r() < .25 * en) m += 12; // intense: occasional octave lift on the offbeat
         const slide = bp.ch === 'g' && this.lastBassF ? this.lastBassF : 0;
-        this.bassNote(g.bass.kind, m, tb, d, (.85 + r() * .15) * Math.min(1.1, VH()) * (.78 + .32 * mood), { slide, accent: bp.ch === 'o' || (g.bass.kind === 'acid' && r() < .3 + .5 * mood) || (mood > .85 && r() < .4) });
+        this.bassNote(g.bass.kind, m, tb, d, (.85 + r() * .15) * Math.min(1.1, VH()) * (.78 + .32 * mc + .06 * en), { slide, accent: bp.ch === 'o' || (g.bass.kind === 'acid' && r() < .3 + .5 * mc) });
         this.lastBassF = this.mtof(m);
       }
-    }
-    if (!gap && mood > .8 && g.bass.kind !== 'drone' && !g.bass.walk && L('bass') && this.chord && !(this.secBar % 4 === 3 ? this.bassPat2 : this.bassPat)[i] && i % 2 === 1 && r() < (mood - .8) * 2) {
-      const m = this._bassRoot(this.chord, g.bass.kind === '808' ? 27 : 28) + (r() < .4 ? 12 : 0); this.bassNote(g.bass.kind === '808' ? 'sub' : g.bass.kind, m, tb, sd * .8, .7);
     }
     // ---- chord comping ----
     if (!gap && g.comp.kind && L('comp') && this.chord) {
       const cp = this.compPat[i];
       if (cp && !(i !== 0 && mood < .45 && r() < (.45 - mood) * 1.6)) {
         const d = cp.len * sd * (g.comp.stacc ? .85 : .98) * (mood < .4 ? 1.5 - mood * 1.25 : 1);
-        const v = g.comp.vel * vel(cp.ch) * (.85 + r() * .2) * (.5 + mood * .75);
-        const vo = mood > .62 ? this.voicing.concat([Math.max.apply(null, this.voicing) + (mood > .85 ? 7 : 12)].filter(x => x < 92), mood > .85 ? [Math.min.apply(null, this.voicing) + 12] : []) : this.voicing; // intense: more voices
+        const v = g.comp.vel * vel(cp.ch) * (.85 + r() * .2) * (.5 + mc * .75 + .15 * en);
+        const vo = en > .25 ? this.voicing.concat([Math.max.apply(null, this.voicing) + 12].filter(x => x < 84)) : this.voicing; // intense: more voices
         if (r() < .93) this.chordNote(g.comp.kind, vo, tc, d, v * VH(), 'chord', { short: d * .9, strum: g.comp.kind === 'pluckchord' ? .012 : (g.comp.kind === 'rhodes' || g.comp.kind === 'epiano') ? .008 : 0, stac: g.comp.stacc });
       }
     }
+    if (!gap && en > .4 && g.comp.kind && L('comp') && this.chord && !this.compPat[i] && g.grid === 16 && i % 4 === 2 && r() < .55 + .45 * en) // intense: rhythmic offbeat chord pulse
+      this.chordNote(g.comp.kind, this.voicing, tc, sd * 1.1, g.comp.vel * (.38 + .14 * en), 'chord', { short: sd, stac: true });
     // ---- arp ----
-    const aS = mood > .74 ? Math.max(1, this.arpStride >> 1) : mood < .3 ? this.arpStride * 2 : this.arpStride;
-    if (!gap && g.arp.kind && L('arp') && this.chord && i % aS === 0 && r() < Math.min(1, this.arpP * (.45 + .8 * mood))) {
+    const aS = en > .5 ? Math.max(2, this.arpStride >> 1) : mood < .3 ? this.arpStride * 2 : this.arpStride;
+    if (!gap && g.arp.kind && L('arp') && this.chord && i % aS === 0 && r() < Math.min(1, this.arpP * (.45 + .8 * mc + .3 * en))) {
       const base = this.voicing.slice().sort((a, b) => a - b), pool = base.concat(base.map(x => x + 12)), n = pool.length, k = this.arpI++;
       let idx;
       switch (this.arpMode) { case 'down': idx = n - 1 - (k % n); break; case 'updown': { const p = k % (2 * n - 2); idx = p < n ? p : 2 * n - 2 - p; break; } case 'skip': idx = [0, 2, 1, 3, 2, 4, 3, 5][k % 8] % n; break; default: idx = k % n; }
       let m = pool[idx] + (['bell', 'kalimba', 'pluck', 'chip'].includes(g.arp.kind) ? 12 : 0);
       while (m > 90) m -= 12;
-      this.leadNote(g.arp.kind, m, jt(.7), aS * sd * .8, (.32 + .4 * mood) * (i % (aS * 4) === 0 ? 1.15 : .85), 'arp');
+      this.leadNote(g.arp.kind, m, jt(.7), aS * sd * .8, (.32 + .4 * mc + .06 * en) * (i % (aS * 4) === 0 ? 1.15 : .85), 'arp');
       this.emit('arp', t, m);
     }
     // ---- lead (motif) ----
@@ -640,11 +637,10 @@
       if (n && (n.v > .9 ? !(mood < .25 && r() < .3) : r() > (1 - mood) * .8)) { // chill: the lead mostly rests
         const m = this._melodyNote(n.d, i, n.l);
         const d = Math.max(.1, n.l * sd * (g.lead.kind === 'chip' || g.lead.kind === 'pluck' ? .9 : .97));
-        this.leadNote(g.lead.kind, m, tl, d, (.75 + .25 * n.v) * (.8 + r() * .25) * (.55 + mood * .7) * VH(), 'lead');
-        if (mood > .7 && m + 12 <= 96) this.leadNote(g.lead.kind === 'brass' || g.lead.kind === 'flute' ? 'saw' : g.lead.kind, m + 12, tl + .004, d, .28 + .35 * (mood - .7), 'arp'); // intense: octave double
+        this.leadNote(g.lead.kind, m, tl, d, (.75 + .25 * n.v) * (.8 + r() * .25) * (.55 + mc * .7 + .08 * en) * VH(), 'lead');
+        if (en > .45 && m - 12 >= 52) this.leadNote(g.lead.kind, m - 12, tl + .004, d, .2 * en, 'arp'); // intense: warm octave-below double
         this.emit('lead', tl, m);
       }
-      else if (!n && mood > .82 && i % 2 === 1 && this.lastLeadM && r() < (mood - .82) * 2.4) { this.leadNote(g.lead.kind, this.lastLeadM + (r() < .5 ? 0 : 12), tl, sd * .8, .4, 'lead'); }
       if (n) this.lastLeadM = this._melodyNote(n.d, i, n.l);
       // answer voice (call & response)
       const an = this.ansMap && this.ansMap[pos];

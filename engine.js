@@ -63,7 +63,7 @@
     Object.assign(this.glue.threshold, { value: -17 }); this.glue.knee.value = 14; this.glue.ratio.value = 2.6; this.glue.attack.value = .018; this.glue.release.value = .2;
     this.limiter = c.createDynamicsCompressor();
     this.limiter.threshold.value = -4; this.limiter.knee.value = 1; this.limiter.ratio.value = 20; this.limiter.attack.value = .002; this.limiter.release.value = .09;
-    this.clip = c.createWaveShaper(); this.clip.curve = curve(.9, 1024);
+    this.clip = c.createWaveShaper(); this.clip.curve = curve(.9, 1024); // bounded soft clip (±1) × master .8 → output never exceeds -1.9 dBFS
     this.master = this.gain(.8);
     this.analyser = c.createAnalyser(); this.analyser.fftSize = 2048; this.analyser.smoothingTimeConstant = .8;
     // Chill <-> Intense macro (master): darkness filter + tilt, parallel drive (grit), loudness. See setMood().
@@ -173,25 +173,29 @@
   };
 
   // ---------- Chill <-> Intense: one macro that reshapes the whole mix, smoothly and immediately ----------
-  // chill = sparse, soft, dark, spacious (big reverb, long delay tails, wide); intense = packed, bright, driving, gritty (drive, pump, loud)
+  // chill half (0..0.5) = sparse, soft, dark, spacious. Intense half (0.5..1) builds energy musically and stays clean:
+  // fuller/warmer low end, gentle top shelf (no harsh opening), less grit, wider stereo, a bit more pump, modest loudness rise.
+  // c = chill-side position (identical to the original curve up to mid), e = 0..1 energy above mid.
+  P.moodV = function () { const m = this.mood; return m <= .5 ? m : .5 + .3 * (m - .5); }; // what the synth voices see: barely brighter above mid
   P.setMood = function (m, instant) {
     m = Math.max(0, Math.min(1, +m || 0)); this.mood = m; if (!this.moodTone) return;
+    const c = Math.min(m, .5), e = Math.max(0, (m - .5) * 2);
     const t = this.ctx.currentTime, set = (p, v) => { if (instant) { p.cancelScheduledValues(t); p.setValueAtTime(v, t); } else p.setTargetAtTime(v, t, .07); };
-    set(this.moodTone.frequency, Math.min(20000, 1900 * Math.pow(2, 3.4 * Math.pow(m, .7))));   // 1.9 kHz (dark) -> 8 kHz (mid) -> 20 kHz (open)
-    set(this.moodShelf.gain, -6 + 11 * Math.pow(m, .7));                         // -6 dB -> +5 dB air
-    set(this.moodLow.gain, 2 - 1 * m);
-    set(this.moodDrvIn.gain, .5 + 3.5 * m * m); set(this.moodWet.gain, .55 * Math.pow(m, 1.5)); // parallel grit
-    set(this.moodVol.gain, .46 + .62 * m);                                        // soft -> loud
-    set(this.verbMood.gain, 2.2 - 1.85 * m);                                     // huge space -> tight
-    set(this.drumBus.gain, .62 + .5 * m); set(this.bassIn.gain, .4 + .24 * m);
+    set(this.moodTone.frequency, Math.min(20000, 1900 * Math.pow(2, 3.4 * Math.pow(c, .7)) * (1 + .6 * e)));   // 1.9 kHz (dark) -> 8 kHz (mid) -> ~13 kHz
+    set(this.moodShelf.gain, -6 + 11 * Math.pow(c, .7) + 2 * e);                  // gentle air, no harsh opening
+    set(this.moodLow.gain, 2 - 1 * c + 1.6 * e);                                 // warmer, fuller bottom when intense
+    set(this.moodDrvIn.gain, .5 + 3.5 * c * c); set(this.moodWet.gain, .55 * Math.pow(c, 1.5) * (1 - .85 * e)); // grit fades out above mid
+    set(this.moodVol.gain, (.46 + .62 * c) * (1 + .9 * e)); set(this.master.gain, .8 * (1 + .12 * e)); // ceiling -1.9 -> -0.95 dBFS (soft clip is bounded at ±1, so never over)                     // modest level rise; the fuller arrangement does the rest
+    set(this.verbMood.gain, 2.2 - 1.85 * c - .45 * e);
+    set(this.drumBus.gain, .62 + .5 * c + .06 * e); set(this.bassIn.gain, .4 + .24 * c + .06 * e);
     if (this.g) {
-      const fb = Math.min(.8, this.g.delay.fb * (1.35 - .6 * m) + (1 - m) * .08); set(this.dFb1.gain, fb); set(this.dFb2.gain, fb);
-      set(this.sideGain.gain, this.g.width * (1.35 - .5 * m));
+      const fb = Math.min(.8, this.g.delay.fb * (1.35 - .6 * c) + (1 - c) * .08) * (1 - .2 * e); set(this.dFb1.gain, fb); set(this.dFb2.gain, fb);
+      set(this.sideGain.gain, this.g.width * (1.35 - .5 * c + .4 * e));          // wider image when intense
     }
-    const k = Math.round((1.6 + 7 * Math.pow(m, 1.3)) * 2) / 2; if (k !== this._bassK) { this._bassK = k; this.bassSat.curve = acurve(k, .04 + .08 * m); }
+    const k = Math.round((1.6 + 7 * Math.pow(c, 1.3) - 2.2 * e) * 2) / 2; if (k !== this._bassK) { this._bassK = k; this.bassSat.curve = acurve(k, .04 + .08 * c); } // warmer, cleaner bass above mid
     if (this.filtV != null) this.musicLP.frequency.setTargetAtTime(this.macroF(this.filtV), t, instant ? .001 : .08);
   };
-  P.macroF = function (v) { const m = this.mood; return 400 * Math.pow(45, Math.max(0, Math.min(1, .2 + v * (.25 + .75 * m) + m * .25))); };
+  P.macroF = function (v) { const m = this.mood, c = Math.min(m, .5), e = Math.max(0, (m - .5) * 2); return 400 * Math.pow(45, Math.max(0, Math.min(1, .2 + v * (.25 + .75 * c + .08 * e) + c * .25 + .03 * e))); };
 
   const HL = { kick: .62, snare: 1.15, clap: 1.0, hat: .95, ohat: .8, ride: .75, crash: .7, rev: .7, impact: .5, tomH: 1, tomM: 1, tomL: 1, congaH: 1, congaL: 1, wood: .8, cow: .6, agoH: .6, agoL: .6, shaker: .6, rim: .8, brush: .7 };
   const BRIGHT = { hat: 1, ohat: 1, snare: 1, clap: 1, ride: 1, rim: 1, shaker: 1, brush: 1 };
@@ -203,7 +207,7 @@
     if (this.muted && this.muted.fx && (name === 'impact' || name === 'crash' || name === 'rev')) return null;
     const c = this.ctx, s = c.createBufferSource(); s.buffer = b;
     if (o.rate) s.playbackRate.value = o.rate;
-    if (BRIGHT[base] && !o.raw) vel *= .62 + .55 * this.mood; // softer, duller hats/snares when chill; harder when intense
+    if (BRIGHT[base] && !o.raw) vel *= .62 + .55 * Math.min(this.mood, .5) + .03 * Math.max(0, this.mood - .5); // softer, duller hats/snares when chill; harder when intense
     const g = this.gain(vel * (o.gain == null ? 1 : o.gain) * (HL[base] == null ? .5 : HL[base]));
     if (BRIGHT[base]) { const lp = this.biq('lowpass', Math.min(19000, 4200 + Math.pow(Math.min(1.3, vel), 1.5) * 14500), .4); s.connect(lp); lp.connect(g); } else s.connect(g);
     let out = g; if (o.pan) { out = this.pan(o.pan); g.connect(out); }
@@ -359,7 +363,7 @@
   // BASS --------------------------------------------------------------
   P.bassNote = function (kind, m, t, dur, vel, o) { this._nc = 48; try { this._bassNote(kind, m, t, dur, vel, o); } finally { this._nc = 0; } };
   P._bassNote = function (kind, m, t, dur, vel, o) {
-    o = o || {}; const c = this.ctx, f = mtof(m), mood = this.mood, cut = this.g.cut || .7;
+    o = o || {}; const c = this.ctx, f = mtof(m), mood = this.moodV(), cut = this.g.cut || .7;
     const out = this.gain(1); out.connect(this.bassIn);
     const end = t + dur + .5, v = vel;
     const slide = (osc) => { if (o.slide) { osc.frequency.setValueAtTime(o.slide, t); osc.frequency.exponentialRampToValueAtTime(f, t + .07); } };
@@ -443,7 +447,7 @@
 
   // CHORDS / PADS -------------------------------------------------------
   P.chordNote = function (kind, notes, t, dur, vel, role, o) {
-    o = o || {}; const c = this.ctx, mood = this.mood, PS = this.g.pers || DEFPERS, bus = role === 'pad' ? this.busPad : this.busChord, cut = (this.g.cut || .7) * PS.bright;
+    o = o || {}; const c = this.ctx, mood = this.moodV(), PS = this.g.pers || DEFPERS, bus = role === 'pad' ? this.busPad : this.busChord, cut = (this.g.cut || .7) * PS.bright;
     const sorted = notes.slice().sort((a, b) => a - b);
     const gStrum = (i) => (o.strum ? i * o.strum : 0);
     const noteFM = (m, i, p) => { // FM keys (rhodes / epiano / bellpad)
@@ -516,7 +520,7 @@
 
   // LEAD / ARP ---------------------------------------------------------
   P.leadNote = function (kind, m, t, dur, vel, role) {
-    const c = this.ctx, mood = this.mood, f = mtof(m), PS = this.g.pers || DEFPERS, cut = (this.g.cut || .7) * PS.bright;
+    const c = this.ctx, mood = this.moodV(), f = mtof(m), PS = this.g.pers || DEFPERS, cut = (this.g.cut || .7) * PS.bright;
     const bus = role === 'arp' ? this.busArp : role === 'chord' ? this.busChord : this.busLead;
     const a = this.gain(1), pn = this.pan(role === 'arp' ? rr(-.6, .6) : rr(-.25, .25)); a.connect(pn); pn.connect(bus);
     const glideFrom = (osc) => { if (role === 'lead' && this.lastLeadF && t - this.lastLeadT < dur * 2 + .3 && Math.abs(Math.log2(this.lastLeadF / f)) < 1.1 && (kind === 'saw' || kind === 'sine' || kind === 'brass')) { osc.frequency.setValueAtTime(this.lastLeadF, t); osc.frequency.exponentialRampToValueAtTime(f, t + PS.glide); } };
