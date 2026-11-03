@@ -1,7 +1,7 @@
 # Endless Music Machine
 Invented, never-repeating **instrumental** music in the browser. Pure Web Audio, no dependencies, no sample files.
 Run: `./serve.sh` (or `python3 -m http.server 8080`) → open http://localhost:8080 and tap start.
-Keys: Space play/pause, N new genre, L star loop, M marbles. Tap the glow to play a note in the current key.
+Keys: Space play/pause, N new genre, L star loop, M marbles, S scratch deck. Tap the glow to play a note in the current key.
 
 ## How it works
 - `dsp.js` – drum-kit synthesis rendered to buffers (pitch-enveloped kicks, snappy snares/claps, metallic hats, ride, toms, congas…, round-robin snare/hat variants), generated convolution reverbs (3-band decay, early reflections, short drum room).
@@ -9,6 +9,7 @@ Keys: Space play/pause, N new genre, L star loop, M marbles. Tap the glow to pla
 - `engine.js` – mix chain (per-bus EQ against mud/harshness, sidechain-style ducking, convolution reverb, ping-pong delay, asymmetric tape saturation + wow/flutter, glue compressor + limiter, M/S width), band-limited warm saw/square waves with randomised harmonic phase, synthesized field recordings (rain, wind, sea, crickets, birds, storm, city, night) and the synth voices.
 - `sequencer.js` – arrangement (intro → groove → build → drop → break…), key changes, evolving motifs, **call & response** answer voice, **polyrhythmic** percussion/ostinato cycling on their own length, loose human timing/velocity, and rare **surprises** (vacuum bar, underwater dip, gong, whisper, glitch stutter, key turn, swell).
 - `cameo.js` – Genre Cameos: one character per genre family with a quiet signature sound and a tap payoff locked to the grid and current chord.
+- `scratch.js` – Scratch Deck: the live mix is recorded into a 10 s ring buffer (AudioWorklet, ScriptProcessor fallback); the glow becomes a 33⅓ rpm vinyl you can scratch forwards/backwards (cubic-interpolated variable-speed read head, speed-tracking stylus low-pass), fling back for a rewind spinback, or tap to stop — the beat drops back in on the next downbeat with an impact.
 - **Chill ↔ Intense** (`setMood` in `engine.js`, density/tempo/swing/layers in `sequencer.js`) – one macro that reshapes the whole mix live.
 - `machine.js` – UI, per-genre colour palettes (cross-faded), haptics, visuals, iOS audio unlock, recording / WAV export.
 

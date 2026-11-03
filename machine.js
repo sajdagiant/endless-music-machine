@@ -80,8 +80,10 @@
     ctx.onstatechange = () => { if (playing && ctx.state !== 'running' && ctx.state !== 'closed') revive(); };
     eng = new MM.Engine(ctx, { mood: $('mood').value / 100, onEvent: (type, time, data) => events.push({ type, time, data }) });
     try { recDest = ctx.createMediaStreamDestination(); } catch (e) { recDest = null; }
-    eng.out.connect(ctx.destination);
-    if (recDest) eng.out.connect(recDest);
+    SC = MM.Scratch ? MM.Scratch.attach(ctx, eng) : null; // Scratch Deck tap point (pass-through until the worklet loads)
+    const tail = SC ? SC.tail : eng.out;
+    tail.connect(ctx.destination);
+    if (recDest) tail.connect(recDest);
     freq = new Uint8Array(eng.analyser.frequencyBinCount);
     wave = new Uint8Array(eng.analyser.fftSize);
     eng.start();
@@ -95,7 +97,7 @@
     tick();
     $('start').style.display = 'none';
     setBtn($('play'), 'Pause');
-    window.__mm = { eng, ctx, V };
+    window.__mm = { eng, ctx, V, SC };
   }
   function tick() { if (eng && playing) eng.scheduleUntil(ctx.currentTime + .6); }
 
@@ -139,7 +141,7 @@
     let t = el.querySelector('.t'); if (!t) { t = document.createElement('span'); t.className = 't'; el.insertBefore(t, el.firstChild); }
     t.textContent = txt;
   }
-  ['play', 'new', 'marb', 'rec', 'wav'].forEach(id => { const b = $(id), txt = b.textContent.trim(); b.textContent = ''; setBtn(b, txt); });
+  ['play', 'new', 'marb', 'deck', 'rec', 'wav'].forEach(id => { const b = $(id), txt = b.textContent.trim(); b.textContent = ''; setBtn(b, txt); });
 
   // ---------- haptics ----------
   // Android: navigator.vibrate. iOS Safari has no vibrate API: native taps on a hidden <input type=checkbox switch> give a haptic tick
@@ -182,7 +184,7 @@
       const lab = document.createElement('label'); lab.setAttribute('data-hap', ''); lab.setAttribute('aria-hidden', 'true'); lab.style.cssText = 'position:absolute;inset:0;border-radius:inherit;touch-action:manipulation';
       const inp = document.createElement('input'); inp.type = 'checkbox'; inp.style.cssText = 'position:absolute;width:1px;height:1px;margin:0;visibility:hidden'; inp.addEventListener('click', e => e.stopPropagation()); lab.appendChild(inp); el.appendChild(lab);
     };
-    ['play', 'new', 'rec', 'wav'].forEach(id => { if (isIOS) mk($(id)); });
+    ['play', 'new', 'deck', 'rec', 'wav'].forEach(id => { if (isIOS) mk($(id)); });
     const pad = $('pad'); pad.setAttribute('data-hap', ''); pad.querySelector('input').addEventListener('click', e => e.stopPropagation());
   })();
   window.__hap = Hap;
@@ -214,7 +216,7 @@
   // ---------- controls ----------
   function togglePlay() {
     if (!started) return start();
-    if (playing) { glideStop(); ghostsHush(); cameosHush(); ctx.suspend(); playing = false; if (keepAlive) keepAlive.pause(); setBtn($('play'), 'Play'); }
+    if (playing) { glideStop(); ghostsHush(); cameosHush(); deckHush(); ctx.suspend(); playing = false; if (keepAlive) keepAlive.pause(); setBtn($('play'), 'Play'); }
     else { unlockIOS(); ctx.resume(); playing = true; setBtn($('play'), 'Pause'); }
   }
   // the machine keeps evolving: a fresh hybrid genre every ~7 minutes while playing
@@ -243,6 +245,7 @@
     else if (e.key === 'n' || e.key === 'N') newGenre();
     else if (e.key === 'l' || e.key === 'L') starToggle();
     else if (e.key === 'm' || e.key === 'M') marbleToggle();
+    else if (e.key === 's' || e.key === 'S') deckToggle();
   });
 
   // tap the glow: strike a note in the current key (chord-aware), with a ripple and (native) haptic.
@@ -264,6 +267,7 @@
     if (!started || !playing || !eng) return;
     const gh = ghostHit(e.clientX, e.clientY); if (gh) { ghostCatch(gh); return; }
     const cm = cameoHit(e.clientX, e.clientY); if (cm) { cameoTap(cm); return; }
+    if (deckHit(e.clientX, e.clientY)) { if (!DK.hold) deckGrab(e); if (!isIOS) haptic('soft'); return; }
     if (MB.on) { if (!MB.hold) marbleGrab(e); if (!isIOS) haptic('soft'); return; }
     if (ST.on && eng.starTap) starPlant(e.clientX, e.clientY); else eng.strike(e.clientX / W, 1 - e.clientY / H);
     V.taps.push({ x: e.clientX, y: e.clientY, r: 0, a: .9 });
@@ -274,6 +278,7 @@
     clearTimeout(GL.hold); GL.hold = setTimeout(() => { if (GL.id !== null) glideBegin(GL.x0, GL.y0); }, 200);
   });
   $('pad').addEventListener('pointermove', e => {
+    if (DK.hold && e.pointerId === DK.hold.id) { deckMove(e); return; }
     if (MB.hold && e.pointerId === MB.hold.id) { const b = MB.hold.b; b.x = e.clientX; b.y = e.clientY; b.samp.push({ x: b.x, y: b.y, t: performance.now() }); if (b.samp.length > 12) b.samp.shift(); return; }
     if (e.pointerId !== GL.id || !eng) return;
     if (!GL.on && Math.hypot(e.clientX - GL.x0, e.clientY - GL.y0) > 14) glideBegin(e.clientX, e.clientY);
@@ -286,7 +291,7 @@
       if (Hap.on && canVibrate && now - GL.lastVib > 55) { GL.lastVib = now; try { navigator.vibrate(5); } catch (er) {} }
     }
   });
-  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => $('pad').addEventListener(ev, e => { if (MB.hold && e.pointerId === MB.hold.id) marbleRelease(); if (e.pointerId === GL.id) glideStop(); }));
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => $('pad').addEventListener(ev, e => { if (DK.hold && e.pointerId === DK.hold.id) deckRelease(ev === 'pointercancel'); if (MB.hold && e.pointerId === MB.hold.id) marbleRelease(); if (e.pointerId === GL.id) glideStop(); }));
   addEventListener('blur', glideStop);
   document.addEventListener('visibilitychange', () => { if (document.hidden) { glideStop(); ghostsHush(); cameosHush(); } });
 
@@ -863,6 +868,144 @@
     btn.disabled = false; setBtn(btn, '↓ WAV');
   });
 
+  // ---------- Scratch Deck ◎: the glow becomes a spinning vinyl of the live mix. Drag it to scratch (forward/backward, speed = hand),
+  // fling it backwards for a rewind spinback, tap it to stop — the beat drops back in on the next "one" with an impact. ----------
+  const W0 = Math.PI * 2 * (100 / 3) / 60; // 33⅓ rpm in rad/s = 1× speed
+  const DK = { on: false, vis: 0, ang: 0, rate: 1, tgt: 1, tc: .05, mode: 'live', hold: null, tok: 0, streak: 0, lastDir: 0, lastFlip: 0, sparks: [], words: [], arm: 0, lastVib: 0, groove: 0, flash: 0 };
+  V.deck = DK;
+  let SC = null;
+  function deckGeo() { const y = H * (W < 600 ? .22 : .34); return { x: W / 2, y, r: Math.max(84, Math.min(W * .3, H * .155, 190, W < 600 ? 1e9 : H * .12)) }; }
+  function deckHit(x, y) { if (!SC || !SC.ready || DK.vis < .5 || (!DK.on && DK.mode === 'live')) return false; const g = deckGeo(); return Math.hypot(x - g.x, y - g.y) < g.r * 1.1; }
+  function deckRate(r, tc) { DK.tgt = r; DK.tc = tc || .012; SC.rate(r, tc); }
+  function deckToggle() {
+    if (!started || !eng || !SC) return;
+    if (!SC.ready) return toast('◎ Scratch Deck is warming up…');
+    if (DK.hold) deckRelease(true);
+    DK.on = !DK.on;
+    $('deck').classList.toggle('on', DK.on); $('deck').setAttribute('aria-pressed', DK.on);
+    if (DK.on) { SC.needle(); SC.crackle(true); DK.arm = 0; DK.flash = 1; toast('◎ Scratch Deck · drag the record · fling back to rewind · tap to stop & drop'); haptic('hard'); }
+    else { SC.crackle(false); if (DK.mode === 'live') { SC.grab(); deckRate(0, .28); deckDrop('⏻ power down… back on the one', 1.1); } toast('⏻ Power down… back on the one'); haptic('soft'); }
+  }
+  $('deck').addEventListener('click', deckToggle);
+  // next downbeat of the live groove at least `minGap` seconds away
+  function nextOne(minGap) {
+    const sd = eng.stepDur(), bd = eng.barDur(), now = ctx.currentTime + (minGap || .25);
+    let d = eng.nextTime - eng.stepInBar * sd;
+    while (d - bd >= now) d -= bd; while (d < now) d += bd;
+    return d;
+  }
+  function deckDrop(msg, minGap) {
+    const d = nextOne(minGap), tok = ++DK.tok;
+    DK.mode = 'wait'; DK.dropAt = d;
+    try { eng.hit('impact', d, .85, { raw: 1 }); eng.hit('crash', d, .55, { raw: 1 }); } catch (e) {}
+    SC.live(d - .004, .006);
+    setTimeout(() => {
+      if (tok !== DK.tok) return;
+      SC.off(); DK.mode = 'live'; DK.rate = DK.tgt = 1; DK.flash = 1; V.flash = 1; V.kick = 1; V.rings.push({ r: 0, a: 1, w: 10 }, { r: -30, a: .8, w: 6 });
+      DK.words.push({ txt: 'DROP', a: 1, s: 1.6 }); haptic('hard');
+    }, Math.max(0, (d - ctx.currentTime) * 1000));
+    if (msg) toast(msg);
+  }
+  function deckGrab(e) {
+    if (!SC.grab()) return;
+    const g = deckGeo(), now = performance.now();
+    DK.tok++; DK.mode = 'hold'; DK.hold = { id: e.pointerId, a: Math.atan2(e.clientY - g.y, e.clientX - g.x), t0: now, tm: now, moved: 0, samp: [], r: Math.hypot(e.clientX - g.x, e.clientY - g.y), x: e.clientX, y: e.clientY, w: 0 };
+    deckRate(0, .018); DK.streak = 0;
+    try { $('pad').setPointerCapture(e.pointerId); } catch (er) {}
+    if (!deckGrab.told) { deckGrab.told = 1; setTimeout(() => toast('Wiggle back & forth for baby scratches · fling ⟲ for a rewind'), 700); }
+  }
+  function deckMove(e) {
+    const H0 = DK.hold, g = deckGeo(), now = performance.now();
+    const a = Math.atan2(e.clientY - g.y, e.clientX - g.x); let da = a - H0.a; da = ((da + Math.PI * 3) % (Math.PI * 2)) - Math.PI; H0.a = a;
+    const rr = Math.max(g.r * .25, Math.hypot(e.clientX - g.x, e.clientY - g.y)); H0.r = rr; H0.x = e.clientX; H0.y = e.clientY;
+    DK.ang += da; H0.moved += Math.abs(da) * rr; DK.groove += Math.abs(da);
+    H0.samp.push({ da, t: now }); while (H0.samp.length && now - H0.samp[0].t > 55) H0.samp.shift();
+    let sum = 0; for (const s of H0.samp) sum += s.da; const span = Math.max(.016, (now - (H0.samp.length > 1 ? H0.samp[0].t : H0.tm)) / 1000);
+    H0.tm = now; const rate = Math.max(-5, Math.min(5, (sum / span) / W0)); H0.w = rate; DK.rate = rate;
+    deckRate(rate, .014);
+    const dir = Math.abs(rate) > .5 ? Math.sign(rate) : 0;
+    if (dir && dir !== DK.lastDir) { if (DK.lastDir && now - DK.lastFlip < 900) { DK.streak++; if (DK.streak >= 3 && DK.streak % 2 === 1) DK.words.push({ txt: ['zigga', 'wikka', 'chirp', 'zip', 'flare'][DK.streak % 5] + ' ×' + DK.streak, a: 1, s: 1 }); } else DK.streak = 1; DK.lastDir = dir; DK.lastFlip = now; }
+    const n = Math.min(4, Math.abs(rate) * 1.5 | 0); for (let k = 0; k < n; k++) { const tang = a + Math.PI / 2 * Math.sign(rate); DK.sparks.push({ x: e.clientX, y: e.clientY, vx: Math.cos(tang) * (80 + Math.random() * 160) + (Math.random() - .5) * 60, vy: Math.sin(tang) * (80 + Math.random() * 160) + (Math.random() - .5) * 60, life: .7, c: rate < 0 ? 2 : 3 }); }
+    if (Hap.on && canVibrate && DK.groove > .35 && now - DK.lastVib > 38) { DK.groove = 0; DK.lastVib = now; try { navigator.vibrate(4); } catch (er) {} }
+  }
+  function deckRelease(quiet) {
+    const H0 = DK.hold; if (!H0) return; DK.hold = null;
+    const now = performance.now(), fresh = now - H0.tm < 70, w = fresh ? H0.w : 0;
+    if (quiet) { deckRate(1, .05); SC.live(ctx.currentTime + .12, .015); DK.mode = 'live'; setTimeout(() => { if (DK.mode === 'live') SC.off(); }, 400); return; }
+    if (H0.moved < 12 && now - H0.t0 < 320) { deckDrop('■ Stop… ▶ drop on the one', .3); DK.words.push({ txt: 'STOP', a: 1, s: 1.2 }); return; }
+    if (w < -1.3) { deckRate(w * 1.15, .01); setTimeout(() => { if (DK.mode === 'wait') deckRate(0, .3); }, 60); deckDrop('⟲ REWIND! · pull up…', .75); DK.words.push({ txt: '⟲ REWIND', a: 1, s: 1.4 }); haptic('hard'); return; }
+    // let go: the motor spins it back up, then the live mix takes over
+    const tok = ++DK.tok; deckRate(1, .05); DK.mode = 'spin';
+    SC.live(ctx.currentTime + .17, .012);
+    setTimeout(() => { if (tok !== DK.tok) return; SC.off(); DK.mode = 'live'; }, 300);
+    if (DK.streak >= 4) { DK.words.push({ txt: 'FRESH ✦', a: 1, s: 1.3 }); haptic('hard'); }
+  }
+  function deckHush() { if (!SC) return; DK.tok++; DK.hold = null; DK.mode = 'live'; DK.rate = DK.tgt = 1; SC.live(0, .005); SC.off(); }
+  function drawDeck(dt, c1, c2, c3, bg) {
+    const show = DK.on || DK.mode !== 'live' || !!DK.hold;
+    DK.vis += ((show ? 1 : 0) - DK.vis) * Math.min(1, dt * (show ? 5 : 2.5));
+    DK.arm += ((DK.on ? 1 : 0) - DK.arm) * Math.min(1, dt * 3);
+    DK.flash *= Math.pow(.05, dt);
+    if (!DK.hold) { if (DK.mode === 'live') DK.tgt = playing ? 1 : 0; DK.rate += (DK.tgt - DK.rate) * (1 - Math.exp(-dt / Math.max(.008, DK.tc))); DK.ang += DK.rate * W0 * dt; }
+    else if (performance.now() - DK.hold.tm > 45 && DK.tgt !== 0) { deckRate(0, .02); DK.rate = 0; } // finger resting = record stopped
+    for (let i = DK.sparks.length - 1; i >= 0; i--) { const s = DK.sparks[i]; s.x += s.vx * dt; s.y += s.vy * dt; s.vx *= .94; s.vy *= .94; s.life -= dt * 1.6; if (s.life <= 0) DK.sparks.splice(i, 1); }
+    if (DK.sparks.length > 160) DK.sparks.splice(0, 40);
+    if (DK.vis < .01) { DK.sparks.length = 0; return; }
+    const G0 = deckGeo(), e = 1 - Math.pow(1 - DK.vis, 3), r = G0.r * (.55 + .45 * e), x = G0.x, y = G0.y, TAU = Math.PI * 2;
+    g2.save(); g2.globalAlpha = Math.min(1, DK.vis * 1.2);
+    // halo + waveform rim (what you hear, incl. the scratch)
+    g2.globalCompositeOperation = 'lighter';
+    const halo = g2.createRadialGradient(x, y, r * .9, x, y, r * 1.6); halo.addColorStop(0, hsa(c1, .22 + V.bass * .3 + DK.flash * .3)); halo.addColorStop(1, 'rgba(0,0,0,0)');
+    g2.fillStyle = halo; g2.beginPath(); g2.arc(x, y, r * 1.6, 0, TAU); g2.fill();
+    g2.beginPath();
+    for (let i = 0; i <= 180; i++) { const a = i / 180 * TAU, s = (wave[(i * 6) % wave.length] - 128) / 128, rr = r * 1.06 + s * r * .22; i ? g2.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr) : g2.moveTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); }
+    g2.closePath(); g2.strokeStyle = hsa(c3, .8); g2.lineWidth = 1.8; g2.stroke();
+    // vinyl
+    g2.globalCompositeOperation = 'source-over';
+    const vg = g2.createRadialGradient(x, y, r * .3, x, y, r); vg.addColorStop(0, hs([bg[0], 14, 9])); vg.addColorStop(1, hs([bg[0], 18, 4]));
+    g2.fillStyle = vg; g2.beginPath(); g2.arc(x, y, r, 0, TAU); g2.fill();
+    g2.lineWidth = 1;
+    for (let i = 0; i < 22; i++) { const gr = r * (.42 + i / 22 * .55), lv = (wave[(i * 37) % wave.length] - 128) / 128; g2.strokeStyle = `rgba(255,255,255,${(.035 + (i % 4 === 0 ? .04 : 0) + Math.abs(lv) * .12).toFixed(3)})`; g2.beginPath(); g2.arc(x, y, gr, 0, TAU); g2.stroke(); }
+    // fixed light sheen (records shine where the light hits, not where they turn)
+    for (const [a0, al] of [[-2.35, .1], [.8, .07]]) { const sh = g2.createRadialGradient(x, y, r * .38, x, y, r); sh.addColorStop(0, 'rgba(255,255,255,0)'); sh.addColorStop(.6, `rgba(255,255,255,${al})`); sh.addColorStop(1, 'rgba(255,255,255,0)'); g2.fillStyle = sh; g2.beginPath(); g2.moveTo(x, y); g2.arc(x, y, r, a0 - .32, a0 + .32); g2.closePath(); g2.fill(); }
+    // spinning parts
+    g2.translate(x, y); g2.rotate(DK.ang);
+    // strobe dots on the rim
+    for (let i = 0; i < 48; i++) { const a = i / 48 * TAU; g2.fillStyle = i % 12 === 0 ? hsa(c3, .95, 6) : 'rgba(255,255,255,.28)'; g2.beginPath(); g2.arc(Math.cos(a) * r * .985, Math.sin(a) * r * .985, i % 12 === 0 ? 2.2 : 1.1, 0, TAU); g2.fill(); }
+    // cue sticker stripe
+    g2.strokeStyle = hsa(c3, .55); g2.lineWidth = 3; g2.lineCap = 'round'; g2.beginPath(); g2.moveTo(r * .45, 0); g2.lineTo(r * .93, 0); g2.stroke();
+    // label
+    const lr = r * .36, lg = g2.createLinearGradient(-lr, -lr, lr, lr); lg.addColorStop(0, hs(c1)); lg.addColorStop(1, hs(c2));
+    g2.fillStyle = lg; g2.beginPath(); g2.arc(0, 0, lr, 0, TAU); g2.fill();
+    g2.strokeStyle = 'rgba(0,0,0,.25)'; g2.lineWidth = 1; g2.beginPath(); g2.arc(0, 0, lr * .78, 0, TAU); g2.stroke();
+    g2.fillStyle = 'rgba(10,10,16,.82)'; g2.textAlign = 'center'; g2.textBaseline = 'middle';
+    g2.font = `800 ${Math.round(lr * .26)}px -apple-system,system-ui,sans-serif`; g2.fillText('E·M·M', 0, -lr * .5);
+    g2.beginPath(); g2.arc(0, 0, lr * .13, 0, TAU); g2.fill();
+    g2.fillStyle = 'rgba(235,235,240,.9)'; g2.beginPath(); g2.arc(0, 0, lr * .06, 0, TAU); g2.fill();
+    g2.setTransform(DPR, 0, 0, DPR, 0, 0);
+    // speed readout (doesn't spin)
+    const rd = DK.hold ? (DK.rate < -.05 ? '◀ ' : DK.rate > .05 ? '▶ ' : '■ ') + Math.abs(DK.rate).toFixed(1) + '×' : DK.mode === 'wait' ? '… 1' : '33⅓';
+    g2.font = `700 ${Math.round(lr * .24)}px ui-monospace,Menlo,monospace`; g2.fillStyle = 'rgba(10,10,16,.85)'; g2.textAlign = 'center'; g2.fillText(rd, x, y + lr * .52);
+    // tonearm swings in with the deck
+    const px = x + r * 1.02, py = y - r * .92, arm = (1 - DK.arm) * .9 + .32 + (DK.hold ? .01 * Math.sin(performance.now() / 30) : 0), len = r * 1.32;
+    const hx = px + Math.cos(Math.PI / 2 + arm) * len, hy = py + Math.sin(Math.PI / 2 + arm) * len;
+    g2.lineCap = 'round'; g2.strokeStyle = 'rgba(0,0,0,.45)'; g2.lineWidth = 7; g2.beginPath(); g2.moveTo(px + 3, py + 4); g2.lineTo(hx + 3, hy + 4); g2.stroke();
+    const ag = g2.createLinearGradient(px, py, hx, hy); ag.addColorStop(0, 'rgba(230,232,240,.95)'); ag.addColorStop(1, hs(c3, .95, 8));
+    g2.strokeStyle = ag; g2.lineWidth = 4; g2.beginPath(); g2.moveTo(px, py); g2.lineTo(hx, hy); g2.stroke();
+    g2.fillStyle = hs(c3, 1, 6); g2.save(); g2.translate(hx, hy); g2.rotate(arm + .4); g2.fillRect(-5, -2, 10, 13); g2.restore();
+    g2.fillStyle = 'rgba(230,232,240,.95)'; g2.beginPath(); g2.arc(px, py, 7, 0, TAU); g2.fill(); g2.fillStyle = hs(bg, 1, 6); g2.beginPath(); g2.arc(px, py, 3, 0, TAU); g2.fill();
+    // scratch fx: hand arc, sparks, words
+    g2.globalCompositeOperation = 'lighter';
+    if (DK.hold) { const H0 = DK.hold, a = Math.atan2(H0.y - y, H0.x - x), sw = Math.max(-1.6, Math.min(1.6, -DK.rate * .35)); g2.strokeStyle = hsa(DK.rate < 0 ? c2 : c3, .8); g2.lineWidth = 6 + Math.abs(DK.rate) * 3; g2.beginPath(); g2.arc(x, y, H0.r, Math.min(a, a + sw), Math.max(a, a + sw)); g2.stroke();
+      const hg = g2.createRadialGradient(H0.x, H0.y, 0, H0.x, H0.y, 34); hg.addColorStop(0, hsa(c3, .55)); hg.addColorStop(1, 'rgba(0,0,0,0)'); g2.fillStyle = hg; g2.beginPath(); g2.arc(H0.x, H0.y, 34, 0, TAU); g2.fill(); }
+    for (const s of DK.sparks) { g2.fillStyle = hsa(s.c === 2 ? c2 : c3, s.life, 8); g2.fillRect(s.x - 1.3, s.y - 1.3, 2.6, 2.6); }
+    g2.textAlign = 'center'; g2.textBaseline = 'middle';
+    for (let i = DK.words.length - 1; i >= 0; i--) { const w = DK.words[i]; w.a -= dt * .9; if (w.a <= 0) { DK.words.splice(i, 1); continue; } w.y = (w.y == null ? y - r * .2 : w.y) - dt * 70;
+      g2.font = `900 ${Math.round(r * .2 * w.s * (1.25 - w.a * .25))}px -apple-system,system-ui,sans-serif`; g2.fillStyle = hsa(c3, w.a, 10); g2.fillText(w.txt, x, w.y); }
+    if (DK.words.length > 6) DK.words.shift();
+    g2.restore();
+  }
+
   // ---------- visuals ----------
   V.taps = []; V.bars = 0;
   const SURP = { vacuum: 'Vacuum', dip: 'Underwater dip', gong: 'Gong', whisper: 'Whisper', stutter: 'Glitch', turn: 'Key turn', swell: 'Swell' };
@@ -995,7 +1138,8 @@
     }
     drawGhosts(dt, c1, c2, c3); drawCameos(dt, c1, c2, c3);
     drawStars(dt, cx, cy, R, c1, c2, c3, now);
-    marbleStep(dt, cx, cy, R); drawMarbles(dt, cx, cy, R, c1, c2, c3);
+    drawDeck(dt, c1, c2, c3, bg);
+    const orbR = DK.vis > .5 ? deckGeo().r * 1.1 / 1.12 : R; marbleStep(dt, cx, cy, orbR); drawMarbles(dt, cx, cy, R, c1, c2, c3);
     drawRibbon(dt, c1, c2, c3);
     if (V.flash > .02) { g2.fillStyle = hsa(c1, V.flash * .06, -8); g2.fillRect(0, 0, W, H); }
   }
