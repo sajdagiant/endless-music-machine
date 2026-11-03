@@ -8,6 +8,8 @@ Keys: Space play/pause, N new genre, L star loop, M marbles. Tap the glow to pla
 - `theory.js` – scales (incl. rarer colours: Phrygian Dominant, Hirajoshi, In-Sen, Double Harmonic, Hungarian Minor, Lydian Dominant, Whole Tone), voice-led progressions, 14 genre families fused into **invented hybrids**, motif generator/developer, per-genre *instrument personality* (vibrato, glide, attack, brightness, detune spread, drift, lay-back), humanisation, field-recording bed, polyrhythm.
 - `engine.js` – mix chain (per-bus EQ against mud/harshness, sidechain-style ducking, convolution reverb, ping-pong delay, asymmetric tape saturation + wow/flutter, glue compressor + limiter, M/S width), band-limited warm saw/square waves with randomised harmonic phase, synthesized field recordings (rain, wind, sea, crickets, birds, storm, city, night) and the synth voices.
 - `sequencer.js` – arrangement (intro → groove → build → drop → break…), key changes, evolving motifs, **call & response** answer voice, **polyrhythmic** percussion/ostinato cycling on their own length, loose human timing/velocity, and rare **surprises** (vacuum bar, underwater dip, gong, whisper, glitch stutter, key turn, swell).
+- `cameo.js` – Genre Cameos: one character per genre family with a quiet signature sound and a tap payoff locked to the grid and current chord.
+- **Chill ↔ Intense** (`setMood` in `engine.js`, density/tempo/swing/layers in `sequencer.js`) – one macro that reshapes the whole mix live.
 - `machine.js` – UI, per-genre colour palettes (cross-faded), haptics, visuals, iOS audio unlock, recording / WAV export.
 
 ## Haptics

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Endless Music Machine</title>
-<meta name="emm-build" content="2026-11-02-marble-garden">
+<meta name="emm-build" content="2026-11-02-cameos-intensity">
 <meta name="theme-color" content="#07080c">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -29,8 +29,8 @@ header{display:flex;justify-content:space-between;align-items:center;gap:12px;fo
 header .brand{color:var(--dim);display:flex;align-items:center;gap:8px}
 header .brand i{width:9px;height:9px;border-radius:50%;background:linear-gradient(135deg,var(--c1),var(--c2));box-shadow:0 0 14px var(--c1)}
 #section{display:flex;align-items:center;gap:8px;padding:6px 12px;border:1px solid var(--line);border-radius:99px;backdrop-filter:blur(14px) saturate(140%);-webkit-backdrop-filter:blur(14px) saturate(140%);background:var(--glass);font-size:11px;font-weight:650;letter-spacing:.12em;text-transform:uppercase;color:var(--ink)}
-#ghosts{display:none;padding:6px 11px;border:1px solid var(--line);border-radius:99px;background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);font-size:12px;font-weight:700;letter-spacing:.02em;font-variant-numeric:tabular-nums;transition:transform .2s}
-#ghosts.show{display:inline-flex}#ghosts.pop{transform:scale(1.25)}header .hr{display:flex;gap:8px;align-items:center}
+#zoo,#ghosts{display:none;white-space:nowrap;padding:6px 11px;border:1px solid var(--line);border-radius:99px;background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);font-size:12px;font-weight:700;letter-spacing:.02em;font-variant-numeric:tabular-nums;transition:transform .2s}
+#ghosts.show,#zoo.show{display:inline-flex}#ghosts.pop,#zoo.pop{transform:scale(1.25)}header .hr{display:flex;gap:8px;align-items:center}
 #section:before{content:"";width:6px;height:6px;border-radius:50%;background:var(--c3);box-shadow:0 0 10px var(--c3)}
 #center{text-align:center;margin-top:min(33vh,300px);padding:0 4px}
 #genre{font-weight:720;font-size:clamp(30px,8.6vw,76px);line-height:1.02;letter-spacing:-.04em;margin:0;text-wrap:balance;
@@ -86,7 +86,7 @@ input[type=range]::-moz-range-thumb{width:26px;height:26px;border:0;border-radiu
 <canvas id="cv"></canvas>
 <label id="pad" aria-hidden="true"><input type="checkbox" switch tabindex="-1"></label>
 <div id="ui">
-  <header><span class="brand"><i></i>Endless Music Machine</span><span class="hr"><span id="ghosts" aria-live="polite"></span><span id="section">—</span></span></header>
+  <header><span class="brand"><i></i>Endless Music Machine</span><span class="hr"><span id="zoo" aria-live="polite"></span><span id="ghosts" aria-live="polite"></span><span id="section">—</span></span></header>
   <div id="center"><h1 id="genre">&nbsp;</h1><div id="persona"></div><div id="meta"></div></div>
   <div id="controls">
     <div class="mood"><span>Chill</span><input id="mood" type="range" min="0" max="100" value="55" aria-label="Mood"><span>Intense</span></div>
@@ -101,7 +101,7 @@ input[type=range]::-moz-range-thumb{width:26px;height:26px;border:0;border-radiu
       <button id="rec" class="rec">● Clip</button>
       <button id="wav">↓ WAV</button>
     </div>
-    <div id="hint">Tap the glow to play a note · hold &amp; drag for the Glide Ribbon · ✦ Loop plants looping stars · ◉ Marbles bounce on a floor-xylophone (tilt to steer) · tap ghosts 👻 · <span class="kbd">Space play/pause · N new genre · M marbles ·</span> instrumental</div>
+    <div id="hint">Tap the glow to play a note · hold &amp; drag for the Glide Ribbon · ✦ Loop plants looping stars · ◉ Marbles bounce on a floor-xylophone (tilt to steer) · tap ghosts 👻 &amp; genre cameos 🐾 · <span class="kbd">Space play/pause · N new genre · M marbles ·</span> instrumental</div>
   </div>
 </div>
 <div id="start"><h1>Endless<br>Music<br>Machine</h1><p>Invented genres · never repeats · no vocals</p><div class="go"></div><label class="chipbtn" id="hapL0"><span>Haptics</span><input id="hap0" type="checkbox" switch></label></div>
@@ -110,6 +110,7 @@ input[type=range]::-moz-range-thumb{width:26px;height:26px;border:0;border-radiu
 <script src="theory.js"></script>
 <script src="engine.js"></script>
 <script src="sequencer.js"></script>
+<script src="cameo.js"></script>
 <script src="machine.js"></script>
 </body>
 </html>
