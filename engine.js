@@ -66,9 +66,14 @@
     this.clip = c.createWaveShaper(); this.clip.curve = curve(.9, 1024);
     this.master = this.gain(.8);
     this.analyser = c.createAnalyser(); this.analyser.fftSize = 2048; this.analyser.smoothingTimeConstant = .8;
-    this.pre.connect(hp); hp.connect(this.sat); this.sat.connect(this.lowShelf); this.lowShelf.connect(this.highShelf); this.harsh1 = this.biq('peaking', 3300, .9); this.harsh1.gain.value = -1.6; this.harsh2 = this.biq('peaking', 6800, 1.1); this.harsh2.gain.value = -1.2;
+    // Chill <-> Intense macro (master): darkness filter + tilt, parallel drive (grit), loudness. See setMood().
+    this.moodTone = this.biq('lowpass', 18000, .55); this.moodShelf = this.biq('highshelf', 3200, 0); this.moodLow = this.biq('lowshelf', 160, 0);
+    this.moodDry = this.gain(1); this.moodDrvIn = this.gain(1); const drvHP = this.biq('highpass', 140, .6); this.moodDrv = c.createWaveShaper(); this.moodDrv.curve = acurve(3.2, .1); this.moodDrv.oversample = '2x';
+    this.moodWet = this.gain(0); this.moodVol = this.gain(1);
+    this.pre.connect(hp); hp.connect(this.moodTone); this.moodTone.connect(this.moodShelf); this.moodShelf.connect(this.moodLow);
+    this.moodLow.connect(this.moodDry); this.moodDry.connect(this.sat); this.moodLow.connect(this.moodDrvIn); this.moodDrvIn.connect(drvHP); drvHP.connect(this.moodDrv); this.moodDrv.connect(this.moodWet); this.moodWet.connect(this.sat); this.sat.connect(this.lowShelf); this.lowShelf.connect(this.highShelf); this.harsh1 = this.biq('peaking', 3300, .9); this.harsh1.gain.value = -1.6; this.harsh2 = this.biq('peaking', 6800, 1.1); this.harsh2.gain.value = -1.2;
     this.tapeLP = this.biq('lowpass', 17000, .45);
-    this.highShelf.connect(this.harsh1); this.harsh1.connect(this.harsh2); this.harsh2.connect(this.tapeLP); this.tapeLP.connect(this.glue);
+    this.highShelf.connect(this.harsh1); this.harsh1.connect(this.harsh2); this.harsh2.connect(this.tapeLP); this.tapeLP.connect(this.moodVol); this.moodVol.connect(this.glue);
     this.glue.connect(this.limiter); this.limiter.connect(this.clip); this.clip.connect(this.master); this.master.connect(this.analyser);
     this.out = this.master;
     // ---- drums ----
@@ -98,7 +103,7 @@
     // ---- sends ----
     this.verbIn = this.gain(1); this.verbOut = this.gain(.3);
     this.fxLP = this.biq('lowpass', 18000, .5); this.verbDuck = this.gain(1);
-    this.verbOut.connect(this.fxLP); this.fxLP.connect(this.verbDuck); this.verbDuck.connect(this.pre);
+    this.verbMood = this.gain(1); this.verbOut.connect(this.fxLP); this.fxLP.connect(this.verbDuck); this.verbDuck.connect(this.verbMood); this.verbMood.connect(this.pre);
     this.vSlot = null;
     // ping-pong delay
     this.dlyIn = this.gain(1); this.dL = c.createDelay(2.5); this.dR = c.createDelay(2.5);
@@ -167,6 +172,27 @@
     this.bassDuck.gain.setValueAtTime(1 - depth * .75, t); this.bassDuck.gain.setTargetAtTime(1, t + .01, rel * .22);
   };
 
+  // ---------- Chill <-> Intense: one macro that reshapes the whole mix, smoothly and immediately ----------
+  // chill = sparse, soft, dark, spacious (big reverb, long delay tails, wide); intense = packed, bright, driving, gritty (drive, pump, loud)
+  P.setMood = function (m, instant) {
+    m = Math.max(0, Math.min(1, +m || 0)); this.mood = m; if (!this.moodTone) return;
+    const t = this.ctx.currentTime, set = (p, v) => { if (instant) { p.cancelScheduledValues(t); p.setValueAtTime(v, t); } else p.setTargetAtTime(v, t, .07); };
+    set(this.moodTone.frequency, Math.min(20000, 1900 * Math.pow(2, 3.4 * Math.pow(m, .7))));   // 1.9 kHz (dark) -> 8 kHz (mid) -> 20 kHz (open)
+    set(this.moodShelf.gain, -6 + 11 * Math.pow(m, .7));                         // -6 dB -> +5 dB air
+    set(this.moodLow.gain, 2 - 1 * m);
+    set(this.moodDrvIn.gain, .5 + 3.5 * m * m); set(this.moodWet.gain, .55 * Math.pow(m, 1.5)); // parallel grit
+    set(this.moodVol.gain, .46 + .62 * m);                                        // soft -> loud
+    set(this.verbMood.gain, 2.2 - 1.85 * m);                                     // huge space -> tight
+    set(this.drumBus.gain, .62 + .5 * m); set(this.bassIn.gain, .4 + .24 * m);
+    if (this.g) {
+      const fb = Math.min(.8, this.g.delay.fb * (1.35 - .6 * m) + (1 - m) * .08); set(this.dFb1.gain, fb); set(this.dFb2.gain, fb);
+      set(this.sideGain.gain, this.g.width * (1.35 - .5 * m));
+    }
+    const k = Math.round((1.6 + 7 * Math.pow(m, 1.3)) * 2) / 2; if (k !== this._bassK) { this._bassK = k; this.bassSat.curve = acurve(k, .04 + .08 * m); }
+    if (this.filtV != null) this.musicLP.frequency.setTargetAtTime(this.macroF(this.filtV), t, instant ? .001 : .08);
+  };
+  P.macroF = function (v) { const m = this.mood; return 400 * Math.pow(45, Math.max(0, Math.min(1, .2 + v * (.25 + .75 * m) + m * .25))); };
+
   const HL = { kick: .62, snare: 1.15, clap: 1.0, hat: .95, ohat: .8, ride: .75, crash: .7, rev: .7, impact: .5, tomH: 1, tomM: 1, tomL: 1, congaH: 1, congaL: 1, wood: .8, cow: .6, agoH: .6, agoL: .6, shaker: .6, rim: .8, brush: .7 };
   const BRIGHT = { hat: 1, ohat: 1, snare: 1, clap: 1, ride: 1, rim: 1, shaker: 1, brush: 1 };
   // ---------- drums: play a pre-rendered one-shot ----------
@@ -177,6 +203,7 @@
     if (this.muted && this.muted.fx && (name === 'impact' || name === 'crash' || name === 'rev')) return null;
     const c = this.ctx, s = c.createBufferSource(); s.buffer = b;
     if (o.rate) s.playbackRate.value = o.rate;
+    if (BRIGHT[base] && !o.raw) vel *= .62 + .55 * this.mood; // softer, duller hats/snares when chill; harder when intense
     const g = this.gain(vel * (o.gain == null ? 1 : o.gain) * (HL[base] == null ? .5 : HL[base]));
     if (BRIGHT[base]) { const lp = this.biq('lowpass', Math.min(19000, 4200 + Math.pow(Math.min(1.3, vel), 1.5) * 14500), .4); s.connect(lp); lp.connect(g); } else s.connect(g);
     let out = g; if (o.pan) { out = this.pan(o.pan); g.connect(out); }

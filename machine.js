@@ -214,7 +214,7 @@
   // ---------- controls ----------
   function togglePlay() {
     if (!started) return start();
-    if (playing) { glideStop(); ghostsHush(); ctx.suspend(); playing = false; if (keepAlive) keepAlive.pause(); setBtn($('play'), 'Play'); }
+    if (playing) { glideStop(); ghostsHush(); cameosHush(); ctx.suspend(); playing = false; if (keepAlive) keepAlive.pause(); setBtn($('play'), 'Play'); }
     else { unlockIOS(); ctx.resume(); playing = true; setBtn($('play'), 'Pause'); }
   }
   // the machine keeps evolving: a fresh hybrid genre every ~7 minutes while playing
@@ -231,7 +231,13 @@
   $('start').addEventListener('touchend', e => { e.preventDefault(); start(); }, { passive: false });
   $('play').addEventListener('click', togglePlay);
   $('new').addEventListener('click', () => newGenre());
-  $('mood').addEventListener('input', e => { if (eng) eng.mood = e.target.value / 100; });
+  // Chill <-> Intense: reshapes the whole mix live (density, tempo, brightness, grit, pump, space). A word under the thumb says where you are.
+  const MOODW = ['sparse · dark · spacious', 'mellow', 'grooving', 'driving', 'packed · bright · gritty'];
+  function moodInput(e) {
+    const v = e.target.value / 100; if (eng && eng.setMood) eng.setMood(v); else if (eng) eng.mood = v;
+    const w = MOODW[Math.min(4, Math.floor(v * 5))]; if (w !== moodInput.w) { moodInput.w = w; toast((v < .2 ? '☾ ' : v > .8 ? '⚡ ' : '') + w); if (v > .8 || v < .2) haptic('soft'); }
+  }
+  $('mood').addEventListener('input', moodInput);
   addEventListener('keydown', e => {
     if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
     else if (e.key === 'n' || e.key === 'N') newGenre();
@@ -257,6 +263,7 @@
   $('pad').addEventListener('pointerdown', e => {
     if (!started || !playing || !eng) return;
     const gh = ghostHit(e.clientX, e.clientY); if (gh) { ghostCatch(gh); return; }
+    const cm = cameoHit(e.clientX, e.clientY); if (cm) { cameoTap(cm); return; }
     if (MB.on) { if (!MB.hold) marbleGrab(e); if (!isIOS) haptic('soft'); return; }
     if (ST.on && eng.starTap) starPlant(e.clientX, e.clientY); else eng.strike(e.clientX / W, 1 - e.clientY / H);
     V.taps.push({ x: e.clientX, y: e.clientY, r: 0, a: .9 });
@@ -281,7 +288,7 @@
   });
   ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => $('pad').addEventListener(ev, e => { if (MB.hold && e.pointerId === MB.hold.id) marbleRelease(); if (e.pointerId === GL.id) glideStop(); }));
   addEventListener('blur', glideStop);
-  document.addEventListener('visibilitychange', () => { if (document.hidden) { glideStop(); ghostsHush(); } });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { glideStop(); ghostsHush(); cameosHush(); } });
 
   // ---------- Star Loop: plant stars by tapping; they loop every 2 bars as a living constellation and follow the chords ----------
   const ST = { on: false, flare: {}, shoot: [], dust: [], pulse: 0 };
@@ -558,6 +565,261 @@
   }
   window.__ghost = { spawn: ghostSpawn, catch: () => GH.list[0] && ghostCatch(GH.list[0]), GH };
 
+  // ---------- Cameos: a character for every genre family wanders through now and then; tap it for a musical payoff ----------
+  // Each has its own look, motion and signature sound (see cameo.js). Met characters are collected (🐾 n/14). Instrumental only.
+  const CM = { list: [], parts: [], next: 0, met: {} };
+  try { CM.met = JSON.parse(localStorage.getItem('emm-zoo') || '{}') || {}; } catch (e) { CM.met = {}; }
+  V.cameos = CM;
+  const CMK = Object.keys(MM.CAMEOS || {});
+  const zooText = () => '🐾 ' + Object.keys(CM.met).filter(k => CM.met[k] && MM.CAMEOS[k]).length + '/' + CMK.length;
+  function zooShow(pop) { const z = $('zoo'); if (!z) return; z.textContent = zooText(); if (Object.keys(CM.met).some(k => CM.met[k] && MM.CAMEOS[k])) z.classList.add('show'); if (pop) { z.classList.add('pop'); setTimeout(() => z.classList.remove('pop'), 260); } }
+  zooShow();
+  // motion style per character
+  const CMOVE = { lofi: 'float', house: 'hang', dnb: 'run', wave: 'drive', ambient: 'rise', dub: 'swim', trap: 'hop', jazz: 'walk', chip: 'bounce', afro: 'walk', cine: 'soar', techno: 'fly', garage: 'strut', prog: 'drift' };
+  function cameoSpawn(kind) {
+    if (!eng || !eng.cameoTap || CM.list.length) return null;
+    if (!kind) { const f = (eng.g.famIds || []).filter(x => x && MM.CAMEOS[x]); kind = f.length ? f[Math.random() < .62 ? 0 : f.length - 1] : CMK[Math.floor(Math.random() * CMK.length)]; }
+    const mv = CMOVE[kind], fromL = Math.random() < .5, dir = fromL ? 1 : -1, s = (W > 600 ? 48 : 40) * (mv === 'drive' ? 1.2 : mv === 'soar' ? 1.05 : 1);
+    const floor = Math.min(H * .8, H - 196 - s * .4), /* feet just above the controls */ spd = { run: 120, drive: 150, hop: 70, bounce: 70, walk: 46, strut: 56, float: 34, swim: 40, soar: 70, fly: 64, drift: 30 }[mv] || 40;
+    const c = { kind, mv, dir, s, t: 0, a: 0, dead: 0, happy: 0, ph: Math.random() * 7, life: 15 + Math.random() * 4, nextIdle: 0, gone: 0,
+      x: fromL ? -s * 2 : W + s * 2, y: floor - s * .55, vx: dir * spd * (W > 600 ? 1.5 : 1), vy: 0, floor, base: 0 };
+    if (mv === 'hang') { c.x = W * (.2 + Math.random() * .6); c.y = -s * 2; c.vx = 0; c.base = H * (.16 + Math.random() * .14); }
+    else if (mv === 'rise') { c.x = W * (.15 + Math.random() * .7); c.y = H * .78; c.vx = dir * 8; c.base = H * .78; }
+    else if (mv === 'swim' || mv === 'fly' || mv === 'drift') c.y = c.base = H * (.16 + Math.random() * .3);
+    else if (mv === 'soar') c.y = c.base = H * (.12 + Math.random() * .16);
+    else if (mv === 'drive') c.y = c.floor - s * .35;
+    else if (mv === 'float') c.y = c.base = c.floor - s * 1.1;
+    CM.list.push(c);
+    const info = MM.CAMEOS[kind]; if (!CM.met['seen_' + kind]) { CM.met['seen_' + kind] = 0; toast(info.emoji + ' ' + info.name + ' is passing by · tap it'); }
+    return c;
+  }
+  function cameoUpdate(dt) {
+    if (!playing || !eng) return;
+    const now = ctx.currentTime;
+    if (!CM.next) CM.next = now + 9;
+    if (now > CM.next && !CM.list.length) { cameoSpawn(); CM.next = now + 24 + Math.random() * 22; }
+    const beat = 60 / eng.bpmNow();
+    for (let i = CM.list.length - 1; i >= 0; i--) {
+      const c = CM.list[i]; c.t += dt;
+      if (c.dead) { c.dead -= dt * 1.2; if (c.dead <= 0) CM.list.splice(i, 1); continue; }
+      if (c.happy > 0) c.happy -= dt;
+      const leaving = c.t > c.life || c.gone;
+      switch (c.mv) {
+        case 'hang': { const tgt = leaving ? -c.s * 3 : c.base; c.y += (tgt - c.y) * Math.min(1, dt * 1.6); if (leaving && c.y < -c.s * 2.5) c.dead = .01; break; }
+        case 'rise': c.y -= dt * (18 + (leaving ? 80 : 0)) * (1 + Math.max(0, Math.sin(c.t * 3)) * 1.5); c.x += c.vx * dt; if (c.y < -c.s * 3) c.dead = .01; break;
+        case 'hop': { c.x += c.vx * dt * (leaving ? 2.4 : 1); const p = (c.t * 1.3) % 1; c.y = c.floor - c.s * .55 - Math.sin(p * Math.PI) * c.s * 2.2; break; }
+        case 'bounce': { c.x += c.vx * dt * (leaving ? 2.4 : 1); const p = (c.t / beat / 2) % 1; c.y = c.floor - c.s * .5 - Math.sin(p * Math.PI) * c.s * 1.8; c.sq = p; break; }
+        case 'swim': case 'fly': case 'drift': case 'soar': c.x += c.vx * dt * (leaving ? 2.6 : 1); c.y = c.base + Math.sin(c.t * (c.mv === 'soar' ? 1.6 : 1.1) + c.ph) * c.s * (c.mv === 'soar' ? 1.2 : .7); break;
+        case 'float': c.x += c.vx * dt * (leaving ? 3 : 1); c.y = c.base + Math.sin(c.t * 1.4) * c.s * .2; break;
+        default: c.x += c.vx * dt * (leaving ? 2.4 : 1);
+      }
+      if (c.happy > 0 && c.mv !== 'hang') c.y -= Math.sin(Math.max(0, c.happy) / 1.2 * Math.PI) * c.s * .06;
+      c.a = Math.min(1, c.t / .8);
+      if (c.x < -c.s * 4 || c.x > W + c.s * 4) { CM.list.splice(i, 1); continue; }
+      if (!c.happy || c.happy <= 0) { if (now > c.nextIdle) { eng.cameoIdle(c.kind, c.x / W); c.nextIdle = now + beat * ((MM.CAMEOS[c.kind] || {}).idle || 4); } }
+    }
+  }
+  function cameosHush() { CM.list.length = 0; }
+  function cameoHit(x, y) { for (const c of CM.list) if (!c.dead && c.a > .2 && !c.gone && Math.hypot(x - c.x, y - c.y) < c.s * 1.45) return c; return null; }
+  const CPART = { lofi: ['z', '#cbb8ff'], house: ['spark', '#fff6c2'], dnb: ['spark', '#59f3ff'], wave: ['laser', '#ff4fd8'], ambient: ['bubble', '#8ef6ff'], dub: ['bubble', '#9cffb0'], trap: ['drip', '#7cf0ff'], jazz: ['note', '#ffd36b'], chip: ['pixel', '#7dff6b'], afro: ['spark', null], cine: ['ember', '#ffb347'], techno: ['ring', '#8dff6a'], garage: ['note', '#c8a2ff'], prog: ['gear', '#e7c37a'] };
+  function cameoTap(c) {
+    const info = MM.CAMEOS[c.kind]; eng.cameoTap(c.kind, c.x / W, 1 - c.y / H); c.happy = 1.4; c.gone = 1; c.life = Math.min(c.life, c.t + 2);
+    const [pk, col] = CPART[c.kind] || ['spark', '#fff'];
+    for (let k = 0; k < 22; k++) { const a = Math.random() * 7, sp = 70 + Math.random() * 230; CM.parts.push({ x: c.x, y: c.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 70, life: 1, k: pk, col: col || `hsl(${Math.floor(Math.random() * 360)} 90% 65%)`, s: 4 + Math.random() * 7, r: Math.random() * 7 }); }
+    GL.blooms.push({ x: c.x, y: c.y - c.s * .4, txt: info.word, a: 1, s: 1.5 }); V.taps.push({ x: c.x, y: c.y, r: 0, a: 1 }); V.flash = Math.min(1, V.flash + .3);
+    haptic('hard');
+    const first = !CM.met[c.kind]; CM.met[c.kind] = 1; try { localStorage.setItem('emm-zoo', JSON.stringify(CM.met)); } catch (e) {}
+    zooShow(true); if (first) toast(info.emoji + ' New friend: ' + info.name + ' · ' + zooText().slice(3) + ' met');
+    return c.kind;
+  }
+  // --- drawing ---
+  const rr = (x, y, w, h, r) => { g2.beginPath(); g2.moveTo(x + r, y); g2.arcTo(x + w, y, x + w, y + h, r); g2.arcTo(x + w, y + h, x, y + h, r); g2.arcTo(x, y + h, x, y, r); g2.arcTo(x, y, x + w, y, r); g2.closePath(); };
+  const circ = (x, y, r, f) => { g2.beginPath(); g2.arc(x, y, Math.max(.1, r), 0, 7); if (f) { g2.fillStyle = f; g2.fill(); } };
+  const ell = (x, y, a, b, rot, f) => { g2.beginPath(); g2.ellipse(x, y, Math.max(.1, a), Math.max(.1, b), rot || 0, 0, 7); if (f) { g2.fillStyle = f; g2.fill(); } };
+  const ln = (pts, col, w) => { g2.beginPath(); pts.forEach((p, i) => i ? g2.lineTo(p[0], p[1]) : g2.moveTo(p[0], p[1])); g2.strokeStyle = col; g2.lineWidth = w; g2.lineCap = 'round'; g2.lineJoin = 'round'; g2.stroke(); };
+  const eyes = (x, y, gap, r, col, look) => { circ(x - gap, y, r, '#fff'); circ(x + gap, y, r, '#fff'); circ(x - gap + (look || 0), y + r * .1, r * .55, col || '#16121f'); circ(x + gap + (look || 0), y + r * .1, r * .55, col || '#16121f'); circ(x - gap + (look || 0) + r * .2, y - r * .2, r * .18, '#fff'); circ(x + gap + (look || 0) + r * .2, y - r * .2, r * .18, '#fff'); };
+  const smile = (x, y, w, col, lw) => { g2.beginPath(); g2.arc(x, y - w * .5, w, .25 * Math.PI, .75 * Math.PI); g2.strokeStyle = col || '#16121f'; g2.lineWidth = lw || 2; g2.lineCap = 'round'; g2.stroke(); };
+  const DRAW = {
+    lofi(s, T, c) { // sleepy cat in big headphones on a floating cushion
+      rr(-s * .95, s * .35, s * 1.9, s * .42, s * .2); g2.fillStyle = '#6c5ce7'; g2.fill(); rr(-s * .8, s * .3, s * 1.6, s * .16, s * .08); g2.fillStyle = '#8f83ff'; g2.fill();
+      ln([[s * .55, s * .3], [s * 1.05, s * .1 + Math.sin(T * 2.2) * s * .15], [s * 1.0, -s * .3 + Math.sin(T * 2.2 + 1) * s * .2]], '#a99bc9', s * .16); // tail
+      ell(0, s * .08, s * .72, s * .42, 0, '#b9a8d8');
+      const nod = Math.sin(T * 2) * .06 + V.kick * .05; g2.save(); g2.translate(0, -s * .32); g2.rotate(nod);
+      g2.beginPath(); g2.moveTo(-s * .5, -s * .2); g2.lineTo(-s * .42, -s * .72); g2.lineTo(-s * .12, -s * .45); g2.moveTo(s * .5, -s * .2); g2.lineTo(s * .42, -s * .72); g2.lineTo(s * .12, -s * .45); g2.fillStyle = '#b9a8d8'; g2.fill();
+      circ(0, 0, s * .52, '#c7b8e4');
+      g2.beginPath(); g2.arc(0, -s * .05, s * .6, Math.PI * 1.05, Math.PI * 1.95); g2.strokeStyle = '#2b2440'; g2.lineWidth = s * .12; g2.stroke(); // band
+      ell(-s * .56, s * .02, s * .16, s * .24, 0, '#ff8fb1'); ell(s * .56, s * .02, s * .16, s * .24, 0, '#ff8fb1'); ell(-s * .56, s * .02, s * .07, s * .14, 0, '#2b2440'); ell(s * .56, s * .02, s * .07, s * .14, 0, '#2b2440');
+      const happy = c.happy > 0; g2.strokeStyle = '#2b2440'; g2.lineWidth = s * .06; g2.lineCap = 'round';
+      [-1, 1].forEach(k => { g2.beginPath(); if (happy) { circ(k * s * .2, -s * .04, s * .09, '#2b2440'); } else { g2.arc(k * s * .2, -s * .06, s * .1, .15 * Math.PI, .85 * Math.PI); g2.stroke(); } });
+      circ(0, s * .1, s * .05, '#ff8fb1'); smile(-s * .06, s * .2, s * .07, '#2b2440', s * .04); smile(s * .06, s * .2, s * .07, '#2b2440', s * .04);
+      g2.restore();
+    },
+    house(s, T, c) { // mirrorball with shades on a string
+      ln([[0, -s * .8], [0, -H]], 'rgba(220,220,235,.5)', 1.2);
+      const gr = g2.createRadialGradient(-s * .3, -s * .3, s * .1, 0, 0, s * .85); gr.addColorStop(0, '#ffffff'); gr.addColorStop(.5, '#c9cfe0'); gr.addColorStop(1, '#6d7390'); circ(0, 0, s * .8, gr);
+      g2.save(); g2.beginPath(); g2.arc(0, 0, s * .8, 0, 7); g2.clip(); g2.strokeStyle = 'rgba(40,44,70,.45)'; g2.lineWidth = 1;
+      for (let k = -3; k <= 3; k++) { g2.beginPath(); g2.moveTo(-s, k * s * .22); g2.lineTo(s, k * s * .22); g2.stroke(); }
+      for (let k = 0; k < 8; k++) { const xx = Math.sin(T * 1.5 + k * Math.PI / 8 * 2) * s * .8; g2.beginPath(); g2.ellipse(0, 0, Math.abs(xx), s * .8, 0, 0, 7); g2.stroke(); }
+      for (let k = 0; k < 6; k++) { const a = T * 2 + k; if (Math.sin(a * 3) > .6) circ(Math.cos(a) * s * .5, Math.sin(a * 1.3) * s * .5, s * .06, '#fff'); }
+      g2.restore();
+      rr(-s * .52, -s * .2, s * .44, s * .2, s * .08); g2.fillStyle = '#111'; g2.fill(); rr(s * .08, -s * .2, s * .44, s * .2, s * .08); g2.fill(); ln([[-s * .08, -s * .12], [s * .08, -s * .12]], '#111', s * .05);
+      smile(0, s * .32, s * .2, '#1b1b2b', s * .06);
+      g2.globalCompositeOperation = 'lighter'; for (let k = 0; k < 6; k++) { const a = T * .9 + k * 1.05; g2.fillStyle = `hsla(${(k * 60 + T * 40) % 360},90%,65%,.07)`; g2.beginPath(); g2.moveTo(0, 0); g2.lineTo(Math.cos(a - .07) * s * 7, Math.sin(a - .07) * s * 7); g2.lineTo(Math.cos(a + .07) * s * 7, Math.sin(a + .07) * s * 7); g2.fill(); } g2.globalCompositeOperation = 'source-over';
+    },
+    dnb(s, T, c) { // little running robot with LED visor
+      const run = T * 14, l1 = Math.sin(run) * s * .3, l2 = -l1;
+      ln([[-s * .2, s * .45], [-s * .2 + l1, s * .95]], '#7d8fa3', s * .14); ln([[s * .2, s * .45], [s * .2 + l2, s * .95]], '#7d8fa3', s * .14);
+      rr(-s * .45, -s * .05, s * .9, s * .55, s * .1); g2.fillStyle = '#9fb4c7'; g2.fill();
+      for (let k = 0; k < 3; k++) circ(-s * .2 + k * s * .2, s * .22, s * .06, Math.sin(T * 8 + k) > 0 ? '#ff4d6d' : '#ffd166');
+      ln([[-s * .45, s * .1], [-s * .75, s * .1 + Math.sin(run + 1) * s * .25]], '#7d8fa3', s * .1); ln([[s * .45, s * .1], [s * .75, s * .1 - Math.sin(run + 1) * s * .25]], '#7d8fa3', s * .1);
+      const bob = Math.abs(Math.sin(run)) * s * .05; rr(-s * .5, -s * .75 - bob, s * 1, s * .62, s * .14); g2.fillStyle = '#c9d6e3'; g2.fill();
+      rr(-s * .38, -s * .6 - bob, s * .76, s * .3, s * .1); g2.fillStyle = '#102030'; g2.fill();
+      const sc = (T * 3) % 1; g2.fillStyle = '#59f3ff'; g2.shadowColor = '#59f3ff'; g2.shadowBlur = 10; rr(-s * .26 + sc * s * .1, -s * .52 - bob, s * .14, s * .12, s * .03); g2.fill(); rr(s * .08 + sc * s * .1, -s * .52 - bob, s * .14, s * .12, s * .03); g2.fill(); g2.shadowBlur = 0;
+      ln([[0, -s * .75 - bob], [0, -s * 1.05 - bob]], '#7d8fa3', s * .06); circ(0, -s * 1.08 - bob, s * .09, Math.sin(T * 10) > 0 ? '#ff4d6d' : '#ff9fb0');
+      for (let k = 0; k < 3; k++) ln([[-c.dir * s * (.8 + k * .25), -s * .3 + k * s * .25], [-c.dir * s * (1.3 + k * .3), -s * .3 + k * s * .25]], 'rgba(89,243,255,.45)', 2);
+    },
+    wave(s, T, c) { // retro neon time car (side view)
+      g2.globalCompositeOperation = 'lighter'; for (let k = 0; k < 4; k++) ln([[-s * 1.1, s * (-.1 + k * .1)], [-s * (2.6 + k * .5 + Math.sin(T * 9 + k) * .2), s * (-.1 + k * .1)]], k % 2 ? 'rgba(255,79,216,.55)' : 'rgba(89,243,255,.55)', 3); g2.globalCompositeOperation = 'source-over';
+      ell(0, s * .38, s * 1.2, s * .1, 0, 'rgba(255,79,216,.55)');
+      g2.beginPath(); g2.moveTo(-s * 1.15, s * .25); g2.lineTo(-s * 1.15, -s * .1); g2.lineTo(-s * .55, -s * .2); g2.lineTo(-s * .25, -s * .48); g2.lineTo(s * .35, -s * .48); g2.lineTo(s * .7, -s * .18); g2.lineTo(s * 1.2, -s * .08); g2.lineTo(s * 1.2, s * .25); g2.closePath();
+      const gr = g2.createLinearGradient(0, -s * .5, 0, s * .3); gr.addColorStop(0, '#e8edf6'); gr.addColorStop(1, '#8c95a8'); g2.fillStyle = gr; g2.fill();
+      g2.beginPath(); g2.moveTo(-s * .2, -s * .42); g2.lineTo(s * .32, -s * .42); g2.lineTo(s * .58, -s * .2); g2.lineTo(-s * .45, -s * .2); g2.closePath(); g2.fillStyle = '#17142e'; g2.fill();
+      ln([[-s * .05, -s * .38], [s * .2, -s * .24]], 'rgba(89,243,255,.8)', 2);
+      ln([[-s * 1.1, s * .02], [s * 1.15, s * .02]], '#ff4fd8', 2); rr(-s * 1.17, -s * .06, s * .12, s * .1, 2); g2.fillStyle = '#ff2a4f'; g2.fill(); rr(s * 1.08, -s * .04, s * .12, s * .08, 2); g2.fillStyle = '#fff6c2'; g2.fill();
+      [-s * .65, s * .7].forEach(wx => { circ(wx, s * .26, s * .24, '#141420'); circ(wx, s * .26, s * .12, '#59f3ff'); const a = T * 18; ln([[wx + Math.cos(a) * s * .2, s * .26 + Math.sin(a) * s * .2], [wx - Math.cos(a) * s * .2, s * .26 - Math.sin(a) * s * .2]], '#141420', 2); });
+    },
+    ambient(s, T, c) { // bioluminescent jellyfish
+      const pulse = .85 + .15 * Math.sin(T * 3);
+      g2.globalCompositeOperation = 'lighter';
+      for (let k = 0; k < 5; k++) { const x0 = (-.5 + k * .25) * s; const pts = []; for (let j = 0; j <= 8; j++) pts.push([x0 + Math.sin(T * 2.4 + j * .7 + k) * s * .12 * (j / 8), s * .1 + j * s * .17]); ln(pts, 'rgba(142,246,255,.45)', 2.2); }
+      g2.beginPath(); g2.ellipse(0, 0, s * .75 * (2 - pulse), s * .62 * pulse, 0, Math.PI, 0); g2.closePath(); const gr = g2.createRadialGradient(0, -s * .2, 0, 0, -s * .1, s * .8); gr.addColorStop(0, 'rgba(255,190,255,.75)'); gr.addColorStop(1, 'rgba(120,200,255,.35)'); g2.fillStyle = gr; g2.fill();
+      g2.globalCompositeOperation = 'source-over';
+      eyes(0, -s * .22, s * .18, s * .09, '#2a1840'); ell(-s * .35, -s * .08, s * .08, s * .04, 0, 'rgba(255,120,180,.6)'); ell(s * .35, -s * .08, s * .08, s * .04, 0, 'rgba(255,120,180,.6)'); smile(0, -s * .02, s * .08, '#2a1840', s * .04);
+    },
+    dub(s, T, c) { // sea turtle in a red-gold-green knit cap
+      const pad = Math.sin(T * 3.2) * .5;
+      ell(-s * .45, s * .32, s * .32, s * .12, .6 + pad, '#86c46e'); ell(s * .45, s * .32, s * .32, s * .12, -.6 - pad, '#86c46e'); ell(-s * .6, -s * .05, s * .36, s * .13, -.4 - pad, '#86c46e');
+      circ(s * .9, -s * .1, s * .3, '#a7d58c'); circ(s * .98, -s * .18, s * .07, '#fff'); circ(s * 1.0, -s * .17, s * .04, '#122'); smile(s * .98, -s * .02, s * .1, '#244', s * .04);
+      ['#d8342b', '#f2c12e', '#2f9e44'].forEach((col, k) => { g2.beginPath(); g2.arc(s * .88, -s * .22, s * (.33 - k * .0), Math.PI * (1.1 + k * .0), Math.PI * 1.95); g2.lineWidth = s * .09; g2.strokeStyle = col; g2.save(); g2.translate(0, -k * s * .08); g2.stroke(); g2.restore(); });
+      g2.beginPath(); g2.ellipse(0, s * .05, s * .8, s * .55, 0, Math.PI, 0); g2.closePath(); g2.fillStyle = '#3f8f5a'; g2.fill();
+      g2.strokeStyle = '#7cc48a'; g2.lineWidth = 2; for (let k = -1; k <= 1; k++) { g2.beginPath(); for (let j = 0; j < 6; j++) { const a = j / 6 * Math.PI * 2; const x = k * s * .42 + Math.cos(a) * s * .16, y = -s * .2 + Math.sin(a) * s * .14; j ? g2.lineTo(x, y) : g2.moveTo(x, y); } g2.closePath(); g2.stroke(); }
+      rr(-s * .82, s * .02, s * 1.64, s * .1, s * .05); g2.fillStyle = '#2d6b43'; g2.fill();
+    },
+    trap(s, T, c) { // frog in shades + gold chain
+      ell(0, s * .2, s * .78, s * .55, 0, '#5fd068'); ell(0, s * .38, s * .55, s * .32, 0, '#b6f2a4');
+      circ(-s * .38, -s * .32, s * .26, '#5fd068'); circ(s * .38, -s * .32, s * .26, '#5fd068');
+      rr(-s * .66, -s * .44, s * .52, s * .24, s * .1); g2.fillStyle = '#0d0d12'; g2.fill(); rr(s * .14, -s * .44, s * .52, s * .24, s * .1); g2.fill(); ln([[-s * .14, -s * .36], [s * .14, -s * .36]], '#0d0d12', s * .06);
+      ln([[-s * .55, -s * .4], [-s * .35, -s * .26]], 'rgba(255,255,255,.7)', 2); ln([[s * .25, -s * .4], [s * .45, -s * .26]], 'rgba(255,255,255,.7)', 2);
+      g2.beginPath(); g2.arc(0, -s * .1, s * .36, .15 * Math.PI, .85 * Math.PI); g2.strokeStyle = '#1d5b26'; g2.lineWidth = s * .06; g2.stroke();
+      g2.beginPath(); g2.arc(0, -s * .05, s * .58, .2 * Math.PI, .8 * Math.PI); g2.strokeStyle = '#f5c542'; g2.lineWidth = s * .08; g2.setLineDash([s * .07, s * .04]); g2.stroke(); g2.setLineDash([]);
+      circ(0, s * .5, s * .1, '#f5c542');
+    },
+    jazz(s, T, c) { // black cat in a beret playing a gold sax
+      const sw = Math.sin(T * 3) * .08; g2.rotate(sw);
+      ln([[-s * .2, s * .5], [-s * .25, s * .95]], '#2a2633', s * .16); ln([[s * .2, s * .5], [s * .25, s * .95]], '#2a2633', s * .16);
+      ln([[-s * .3, s * .4], [-s * .8, s * .3 + Math.sin(T * 2) * s * .2], [-s * .9, -s * .2]], '#2a2633', s * .12);
+      ell(0, s * .2, s * .42, s * .45, 0, '#2a2633');
+      circ(0, -s * .45, s * .4, '#2a2633'); g2.beginPath(); g2.moveTo(-s * .35, -s * .6); g2.lineTo(-s * .28, -s * 1); g2.lineTo(-s * .05, -s * .78); g2.moveTo(s * .35, -s * .6); g2.lineTo(s * .28, -s * 1); g2.lineTo(s * .05, -s * .78); g2.fillStyle = '#2a2633'; g2.fill();
+      ell(-s * .05, -s * .82, s * .36, s * .1, -.2, '#d8342b'); circ(-s * .05, -s * .93, s * .05, '#d8342b');
+      ell(-s * .15, -s * .5, s * .09, s * (c.happy > 0 ? .03 : .06), 0, '#ffd36b'); ell(s * .15, -s * .5, s * .09, s * (c.happy > 0 ? .03 : .06), 0, '#ffd36b');
+      g2.beginPath(); g2.moveTo(s * .05, -s * .3); g2.quadraticCurveTo(s * .3, -s * .25, s * .35, s * .1); g2.quadraticCurveTo(s * .4, s * .55, s * .7, s * .45); g2.strokeStyle = '#f5c542'; g2.lineWidth = s * .13; g2.lineCap = 'round'; g2.stroke();
+      g2.beginPath(); g2.moveTo(s * .6, s * .3); g2.lineTo(s * .95, s * .12); g2.lineTo(s * .88, s * .52); g2.closePath(); g2.fillStyle = '#f5c542'; g2.fill();
+      for (let k = 0; k < 3; k++) circ(s * (.33 + k * .02), -s * .05 + k * s * .13, s * .035, '#a8801c');
+    },
+    chip(s, T, c) { // pixel-art slime (squash & stretch)
+      const p = c.sq || 0, sq = p < .08 || p > .92 ? .8 : 1.05, b = s / 4.2, M = ['..XXXX..', '.XXXXXX.', 'XXWXXWXX', 'XXBXXBXX', 'XXXXXXXX', 'XXXMMXXX', '.XXXXXX.'];
+      g2.save(); g2.scale(1 / sq, sq);
+      const col = { X: '#7dff6b', W: '#ffffff', B: '#10301a', M: '#ff5fa2' };
+      M.forEach((row, y) => row.split('').forEach((ch, x) => { if (ch === '.') return; g2.fillStyle = col[ch]; g2.fillRect((x - 4) * b, (y - 4) * b, b + .5, b + .5); }));
+      g2.fillStyle = '#c6ffbc'; g2.fillRect(-3 * b, -3 * b, b, b); g2.restore();
+    },
+    afro(s, T, c) { // colour-shifting chameleon on a branch, curly tail, rolling eye
+      const h = (T * 60) % 360, body = `hsl(${h} 75% 55%)`, belly = `hsl(${(h + 40) % 360} 85% 70%)`;
+      ln([[-s * 1.2, s * .55], [s * 1.2, s * .55]], '#7a4b2a', s * .12);
+      g2.beginPath(); g2.arc(-s * .85, s * .05, s * .25, 0, Math.PI * 1.6); g2.strokeStyle = body; g2.lineWidth = s * .14; g2.stroke();
+      ell(0, 0, s * .7, s * .4, 0, body); ell(0, s * .15, s * .55, s * .18, 0, belly);
+      for (let k = 0; k < 4; k++) circ(-s * .35 + k * s * .23, -s * .12, s * .06, ['#f2c12e', '#d8342b', '#2f9e44', '#111'][k]);
+      const step = Math.sin(T * 6) * s * .1; ln([[-s * .35, s * .3], [-s * .4 + step, s * .55]], body, s * .1); ln([[s * .35, s * .3], [s * .4 - step, s * .55]], body, s * .1);
+      ell(s * .75, -s * .05, s * .32, s * .26, -.2, body); circ(s * .78, -s * .12, s * .15, belly); const a = T * 2.5; circ(s * .78 + Math.cos(a) * s * .06, -s * .12 + Math.sin(a) * s * .06, s * .06, '#111');
+      if (c.happy > 0) ln([[s * 1.02, s * .02], [s * (1.02 + Math.sin(c.happy * 4) * .9), s * .0]], '#ff5fa2', s * .06);
+    },
+    cine(s, T, c) { // paper dragon kite with trailing body segments
+      const segs = 7;
+      for (let k = segs; k >= 1; k--) { const x = -c.dir * k * s * .42, y = Math.sin(T * 3 - k * .7) * s * .35; circ(x, y, s * (.3 - k * .02), k % 2 ? '#e63946' : '#f4a261'); ln([[x, y - s * .25], [x, y - s * .42]], '#f2c12e', 3); }
+      ln([[-c.dir * segs * s * .42, 0], [-c.dir * segs * s * .42 - c.dir * s * .5, s * 2.2]], 'rgba(255,240,220,.45)', 1);
+      g2.save(); if (c.dir < 0) g2.scale(-1, 1);
+      g2.beginPath(); g2.moveTo(-s * .3, -s * .35); g2.lineTo(s * .55, -s * .2); g2.lineTo(s * .62, s * .15); g2.lineTo(-s * .3, s * .35); g2.closePath(); g2.fillStyle = '#e63946'; g2.fill();
+      ln([[-s * .1, -s * .3], [-s * .35, -s * .75]], '#f2c12e', s * .08); ln([[s * .15, -s * .28], [s * .05, -s * .72]], '#f2c12e', s * .08);
+      eyes(s * .2, -s * .08, s * .0, s * .12, '#111'); ln([[s * .62, s * .05], [s * .9, s * .25 + Math.sin(T * 4) * s * .1]], '#f2c12e', 2); ln([[s * .62, s * .1], [s * .95, s * .4 + Math.sin(T * 4 + 1) * s * .1]], '#f2c12e', 2);
+      rr(-s * .2, s * .12, s * .7, s * .08, 2); g2.fillStyle = '#fff6e0'; g2.fill();
+      g2.restore();
+    },
+    techno(s, T, c) { // little green alien in a saucer, tractor beam on the beat
+      g2.globalCompositeOperation = 'lighter'; const bm = .1 + V.kick * .25 + (c.happy > 0 ? .3 : 0); g2.fillStyle = `rgba(141,255,106,${bm.toFixed(3)})`; g2.beginPath(); g2.moveTo(-s * .35, s * .2); g2.lineTo(s * .35, s * .2); g2.lineTo(s * .9, s * 2.4); g2.lineTo(-s * .9, s * 2.4); g2.closePath(); g2.fill(); g2.globalCompositeOperation = 'source-over';
+      g2.beginPath(); g2.ellipse(0, -s * .15, s * .45, s * .5, 0, Math.PI, 0); g2.fillStyle = 'rgba(170,230,255,.35)'; g2.fill();
+      circ(0, -s * .35, s * .24, '#8dff6a'); ell(-s * .1, -s * .37, s * .08, s * .11, -.4, '#0b0b14'); ell(s * .1, -s * .37, s * .08, s * .11, .4, '#0b0b14');
+      ln([[-s * .1, -s * .55], [-s * .2, -s * .78]], '#8dff6a', 2); ln([[s * .1, -s * .55], [s * .2, -s * .78]], '#8dff6a', 2); circ(-s * .2, -s * .8, s * .05, '#ff4fd8'); circ(s * .2, -s * .8, s * .05, '#ff4fd8');
+      ell(0, 0, s * 1, s * .28, 0, '#b6c2d1'); ell(0, -s * .06, s * .9, s * .12, 0, '#dfe6ef');
+      for (let k = 0; k < 7; k++) circ(-s * .75 + k * s * .25, s * .08, s * .05, ((Math.floor(T * 8) + k) % 3) ? '#59f3ff' : '#ffd166');
+    },
+    garage(s, T, c) { // strutting pigeon with a backwards cap, head bobbing to the beat
+      const bob = Math.sin(T * Math.PI * 2 * (eng ? eng.bpmNow() / 60 / 2 : 1)) * s * .12, step = Math.sin(T * 7) * s * .12;
+      g2.save(); if (c.dir < 0) g2.scale(-1, 1);
+      ln([[-s * .1, s * .35], [-s * .12 + step, s * .85]], '#ff8fa0', s * .06); ln([[s * .12, s * .35], [s * .1 - step, s * .85]], '#ff8fa0', s * .06);
+      ell(-s * .1, s * .1, s * .62, s * .42, -.15, '#9aa3b5'); ell(-s * .35, s * .05, s * .38, s * .2, -.3, '#7b8396'); ln([[-s * .7, s * .15], [-s * .98, s * .3]], '#5f6678', s * .16);
+      ell(s * .3 + bob * .5, -s * .15, s * .18, s * .28, .3, '#5fb3a0'); ell(s * .25 + bob * .5, -s * .1, s * .1, s * .2, .3, 'rgba(160,110,220,.7)');
+      circ(s * .45 + bob, -s * .45, s * .22, '#9aa3b5'); circ(s * .5 + bob, -s * .5, s * .06, '#ff9f1c'); circ(s * .51 + bob, -s * .5, s * .03, '#111');
+      g2.beginPath(); g2.moveTo(s * .64 + bob, -s * .48); g2.lineTo(s * .82 + bob, -s * .42); g2.lineTo(s * .64 + bob, -s * .38); g2.fillStyle = '#4b4b55'; g2.fill();
+      g2.beginPath(); g2.arc(s * .45 + bob, -s * .5, s * .22, Math.PI, 0); g2.fillStyle = '#26325c'; g2.fill(); rr(s * .05 + bob, -s * .56, s * .24, s * .07, 2); g2.fill(); circ(s * .45 + bob, -s * .72, s * .03, '#f2c12e');
+      g2.restore();
+    },
+    prog(s, T, c) { // clockwork octopus: 7 arms ticking in 2+2+3, gear spinning on its head
+      const tick = Math.floor(T * 4) % 7, grp = [0, 0, 1, 1, 2, 2, 2];
+      for (let k = 0; k < 7; k++) { const a = Math.PI * (.12 + k * .76 / 6), on = grp[k] === grp[tick] ? 1 : 0, pts = []; for (let j = 0; j <= 6; j++) { const r = s * (.35 + j * .13), w = Math.sin(T * 3 + k + j * .8) * .15 + on * .2 * Math.sin(j); pts.push([Math.cos(a + w) * r, s * .1 + Math.sin(a + w) * r]); } ln(pts, on ? '#c77dff' : '#9d4edd', s * (.14 - 0)); }
+      const gx = s * .05, gy = -s * .85, ga = T * 2; g2.save(); g2.translate(gx, gy); g2.rotate(ga); g2.beginPath(); for (let k = 0; k < 16; k++) { const r = k % 2 ? s * .26 : s * .34, a = k / 16 * Math.PI * 2; g2.lineTo(Math.cos(a) * r, Math.sin(a) * r); } g2.closePath(); g2.fillStyle = '#e7c37a'; g2.fill(); circ(0, 0, s * .1, '#7a5a1c'); g2.restore();
+      ell(0, -s * .2, s * .62, s * .58, 0, '#b15cff'); circ(-s * .3, -s * .45, s * .08, 'rgba(255,255,255,.35)');
+      eyes(0, -s * .2, s * .22, s * .12, '#240046'); g2.beginPath(); g2.arc(s * .22, -s * .2, s * .17, 0, 7); g2.strokeStyle = '#e7c37a'; g2.lineWidth = 2; g2.stroke(); ln([[s * .36, -s * .12], [s * .42, s * .2]], '#e7c37a', 1);
+      smile(0, s * .08, s * .1, '#240046', s * .04);
+    }
+  };
+  function drawCameos(dt, c1, c2, c3) {
+    const T0 = performance.now() / 1000;
+    for (const c of CM.list) {
+      const al = c.dead ? Math.max(0, c.dead) : c.a; if (al <= 0) continue;
+      const hp = c.happy > 0 ? c.happy / 1.4 : 0, sc = 1 + Math.sin(hp * Math.PI) * .25 + V.kick * .03;
+      g2.save(); g2.translate(c.x, c.y);
+      const halo = g2.createRadialGradient(0, 0, 0, 0, 0, c.s * 2.2); halo.addColorStop(0, hsa(c3, .22 * al + hp * .3, 8)); halo.addColorStop(1, 'rgba(0,0,0,0)'); g2.fillStyle = halo; g2.beginPath(); g2.arc(0, 0, c.s * 2.2, 0, 7); g2.fill();
+      g2.globalCompositeOperation = 'source-over'; g2.globalAlpha = al; g2.scale(sc, sc);
+      if (hp) g2.rotate(Math.sin(hp * Math.PI * 4) * .12);
+      const flip = c.dir < 0 && !['cine', 'garage', 'house', 'ambient', 'techno', 'chip', 'prog'].includes(c.kind); if (flip) g2.scale(-1, 1);
+      try { DRAW[c.kind](c.s, c.t + c.ph, c); } catch (e) { if (!drawCameos.err) { drawCameos.err = 1; console.error('cameo draw ' + c.kind + ': ' + e.message); } }
+      g2.restore(); g2.globalAlpha = 1; g2.globalCompositeOperation = 'lighter';
+      if (c.kind === 'lofi' && !c.happy && Math.random() < dt * .8) CM.parts.push({ x: c.x + c.s * .4, y: c.y - c.s * .8, vx: 12, vy: -26, life: 1, k: 'z', col: '#cbb8ff', s: 8, r: 0 });
+      if (c.kind === 'jazz' && Math.random() < dt * 1.5) CM.parts.push({ x: c.x + c.dir * c.s * .9, y: c.y + c.s * .2, vx: c.dir * 20, vy: -40, life: 1, k: 'note', col: '#ffd36b', s: 9, r: 0 });
+      if ((c.kind === 'dub' || c.kind === 'ambient') && Math.random() < dt * 2) CM.parts.push({ x: c.x + (Math.random() - .5) * c.s, y: c.y - c.s * .5, vx: 0, vy: -30, life: 1, k: 'bubble', col: c.kind === 'dub' ? '#9cffb0' : '#8ef6ff', s: 3 + Math.random() * 4, r: 0 });
+    }
+    g2.textAlign = 'center'; g2.textBaseline = 'middle';
+    for (let i = CM.parts.length - 1; i >= 0; i--) {
+      const p = CM.parts[i]; p.life -= dt * .7; if (p.life <= 0) { CM.parts.splice(i, 1); continue; }
+      p.vx *= Math.pow(.5, dt); p.vy = p.vy * Math.pow(.5, dt) + (p.k === 'drip' || p.k === 'pixel' ? 160 : p.k === 'bubble' || p.k === 'z' || p.k === 'note' ? -10 : 20) * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.r += dt * 4;
+      const a = Math.min(1, p.life * 1.4); g2.fillStyle = p.col; g2.strokeStyle = p.col; g2.globalAlpha = a;
+      switch (p.k) {
+        case 'z': g2.font = `700 ${Math.round(p.s + 6)}px -apple-system,system-ui,sans-serif`; g2.fillText('z', p.x, p.y); break;
+        case 'note': g2.font = `700 ${Math.round(p.s + 8)}px -apple-system,system-ui,sans-serif`; g2.fillText(p.r % 2 > 1 ? '♫' : '♪', p.x, p.y); break;
+        case 'pixel': g2.fillRect(p.x, p.y, p.s, p.s); break;
+        case 'bubble': g2.lineWidth = 1.4; g2.beginPath(); g2.arc(p.x, p.y, p.s, 0, 7); g2.stroke(); break;
+        case 'laser': g2.lineWidth = 2; g2.beginPath(); g2.moveTo(p.x, p.y); g2.lineTo(p.x - p.vx * .08, p.y - p.vy * .08); g2.stroke(); break;
+        case 'ring': g2.lineWidth = 2; g2.beginPath(); g2.arc(p.x, p.y, p.s * (2 - p.life) * 1.5, 0, 7); g2.stroke(); break;
+        case 'gear': g2.save(); g2.translate(p.x, p.y); g2.rotate(p.r); g2.beginPath(); for (let k = 0; k < 12; k++) { const r = k % 2 ? p.s * .7 : p.s, an = k / 12 * Math.PI * 2; g2.lineTo(Math.cos(an) * r, Math.sin(an) * r); } g2.closePath(); g2.fill(); g2.restore(); break;
+        case 'drip': g2.beginPath(); g2.arc(p.x, p.y, p.s * .5, 0, Math.PI); g2.lineTo(p.x, p.y - p.s); g2.closePath(); g2.fill(); break;
+        default: g2.beginPath(); g2.moveTo(p.x, p.y - p.s); g2.lineTo(p.x + p.s * .3, p.y); g2.lineTo(p.x, p.y + p.s); g2.lineTo(p.x - p.s * .3, p.y); g2.closePath(); g2.fill();
+      }
+      g2.globalAlpha = 1;
+    }
+    if (CM.parts.length > 300) CM.parts.splice(0, 80);
+  }
+  window.__cameo = { spawn: cameoSpawn, tap: () => CM.list[0] && cameoTap(CM.list[0]), CM, kinds: CMK };
+
   // record clip (canvas video + audio if possible, else audio only)
   let rec = null, recChunks = [], recTimer;
   function download(blob, name) {
@@ -623,7 +885,7 @@
       }
       else if (e.type === 'star') { ST.flare[e.data.id] = 1; if (!e.data.rec) { const p = ST.pos && ST.pos[e.data.id]; if (p) V.taps.push({ x: p.x, y: p.y, r: 0, a: .45 }); if (++ST.pulse % 4 === 1) haptic('tick'); } }
       else if (e.type === 'hat') { if (Math.random() < .45) V.sparks.push({ x: Math.random() * W, y: Math.random() * H, life: 1 }); }
-      else if (e.type === 'genre') { setGenreUI(e.data); V.flash = 1; haptic('hard'); }
+      else if (e.type === 'genre') { setGenreUI(e.data); V.flash = 1; haptic('hard'); if (V.cameos && V.cameos.next) V.cameos.next = Math.min(V.cameos.next, ctx.currentTime + 10); }
       else if (e.type === 'key') { renderMeta(e.data.key, e.data.mode); haptic('soft'); }
       else if (e.type === 'bar') { if (e.data.secBar === 0) haptic(e.data.section === 'drop' || e.data.section === 'peak' ? 'hard' : 'soft'); else if ((V.secName === 'drop' || V.secName === 'peak') && e.data.secBar % 4 === 0) haptic('tick'); }
       else if (e.type === 'surprise') { toast('✦ ' + (SURP[e.data] || e.data)); V.flash = Math.min(1, V.flash + .5); haptic('hard'); }
@@ -642,7 +904,7 @@
     updatePalette(dt);
     if (!started) { idle(now); return; }
     if (playing) handleEvents();
-    ghostUpdate(dt);
+    ghostUpdate(dt); cameoUpdate(dt);
     eng.analyser.getByteFrequencyData(freq);
     eng.analyser.getByteTimeDomainData(wave);
     V.kick *= Math.pow(.003, dt); V.flash *= Math.pow(.02, dt);
@@ -731,7 +993,7 @@
       if (s.life <= 0) { V.sparks.splice(i, 1); continue; }
       g2.fillStyle = hsa(c3, s.life * .7, 6); g2.fillRect(s.x, s.y, 2, 2);
     }
-    drawGhosts(dt, c1, c2, c3);
+    drawGhosts(dt, c1, c2, c3); drawCameos(dt, c1, c2, c3);
     drawStars(dt, cx, cy, R, c1, c2, c3, now);
     marbleStep(dt, cx, cy, R); drawMarbles(dt, cx, cy, R, c1, c2, c3);
     drawRibbon(dt, c1, c2, c3);
