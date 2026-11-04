@@ -184,7 +184,7 @@
       const lab = document.createElement('label'); lab.setAttribute('data-hap', ''); lab.setAttribute('aria-hidden', 'true'); lab.style.cssText = 'position:absolute;inset:0;border-radius:inherit;touch-action:manipulation';
       const inp = document.createElement('input'); inp.type = 'checkbox'; inp.style.cssText = 'position:absolute;width:1px;height:1px;margin:0;visibility:hidden'; inp.addEventListener('click', e => e.stopPropagation()); lab.appendChild(inp); el.appendChild(lab);
     };
-    ['play', 'new', 'deck', 'rec', 'wav'].forEach(id => { if (isIOS) mk($(id)); });
+    ['play', 'new', 'deck', 'harp', 'rec', 'wav'].forEach(id => { if (isIOS) mk($(id)); });
     const pad = $('pad'); pad.setAttribute('data-hap', ''); pad.querySelector('input').addEventListener('click', e => e.stopPropagation());
   })();
   window.__hap = Hap;
@@ -246,6 +246,7 @@
     else if (e.key === 'l' || e.key === 'L') starToggle();
     else if (e.key === 'm' || e.key === 'M') marbleToggle();
     else if (e.key === 's' || e.key === 'S') deckToggle();
+    else if (e.key === 'h' || e.key === 'H') harpToggle();
   });
 
   // tap the glow: strike a note in the current key (chord-aware), with a ripple and (native) haptic.
@@ -267,6 +268,7 @@
     if (!started || !playing || !eng) return;
     const gh = ghostHit(e.clientX, e.clientY); if (gh) { ghostCatch(gh); return; }
     const cm = cameoHit(e.clientX, e.clientY); if (cm) { cameoTap(cm); return; }
+    if (HP.on) { if (harpDown(e)) return; }
     if (deckHit(e.clientX, e.clientY)) { if (!DK.hold) deckGrab(e); if (!isIOS) haptic('soft'); return; }
     if (MB.on) { if (!MB.hold) marbleGrab(e); if (!isIOS) haptic('soft'); return; }
     if (ST.on && eng.starTap) starPlant(e.clientX, e.clientY); else eng.strike(e.clientX / W, 1 - e.clientY / H);
@@ -278,6 +280,7 @@
     clearTimeout(GL.hold); GL.hold = setTimeout(() => { if (GL.id !== null) glideBegin(GL.x0, GL.y0); }, 200);
   });
   $('pad').addEventListener('pointermove', e => {
+    if (HP.ptr.size && harpMove(e)) return;
     if (DK.hold && e.pointerId === DK.hold.id) { deckMove(e); return; }
     if (MB.hold && e.pointerId === MB.hold.id) { const b = MB.hold.b; b.x = e.clientX; b.y = e.clientY; b.samp.push({ x: b.x, y: b.y, t: performance.now() }); if (b.samp.length > 12) b.samp.shift(); return; }
     if (e.pointerId !== GL.id || !eng) return;
@@ -291,7 +294,7 @@
       if (Hap.on && canVibrate && now - GL.lastVib > 55) { GL.lastVib = now; try { navigator.vibrate(5); } catch (er) {} }
     }
   });
-  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => $('pad').addEventListener(ev, e => { if (DK.hold && e.pointerId === DK.hold.id) deckRelease(ev === 'pointercancel'); if (MB.hold && e.pointerId === MB.hold.id) marbleRelease(); if (e.pointerId === GL.id) glideStop(); }));
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => $('pad').addEventListener(ev, e => { harpUp(e); if (DK.hold && e.pointerId === DK.hold.id) deckRelease(ev === 'pointercancel'); if (MB.hold && e.pointerId === MB.hold.id) marbleRelease(); if (e.pointerId === GL.id) glideStop(); }));
   addEventListener('blur', glideStop);
   document.addEventListener('visibilitychange', () => { if (document.hidden) { glideStop(); ghostsHush(); cameosHush(); } });
 
@@ -372,6 +375,7 @@
   function marbleToggle() {
     if (!started || !eng || !eng.marbleHit) return;
     MB.on = !MB.on;
+    if (MB.on && HP.on) harpToggle();
     if (MB.on && !MB.tiltAsked) { // iOS 13+: motion permission must be requested inside the tap
       MB.tiltAsked = 1;
       try {
@@ -487,6 +491,86 @@
   }
   window.__marbles = { toggle: marbleToggle, add: (x, y, vx, vy) => { const b = marbleAdd(x, y); b.held = false; b.vx = vx || 0; b.vy = vy || 0; return b; }, MB };
 
+  // ---------- Harp Strings: a curtain of glowing strings tuned to the current chord — strum across, pluck, they bend under your finger ----------
+  const HP = { on: false, vis: 0, s: [], ptr: new Map(), sparks: [], sig: '', retune: 0, lastVib: 0 };
+  V.harp = HP;
+  function harpGeo() {
+    const n = eng && eng.HARP_N || 11, top = Math.max(64, H * .09), ct = $('controls').getBoundingClientRect().top, bot = Math.max(top + 160, Math.min(H * .72, ct - 16));
+    const x0 = W * (W < 600 ? .07 : .16), x1 = W - x0, sp = (x1 - x0) / (n - 1);
+    return { n, top, bot, x0, sp, xs: i => x0 + i * sp };
+  }
+  function harpSync() {
+    const st = eng.harpStrings(), sig = st.map(s => s.m).join(',');
+    if (sig !== HP.sig) {
+      const first = !HP.sig; HP.sig = sig;
+      st.forEach((s, i) => { const o = HP.s[i] || (HP.s[i] = { amp: 0, ph: 0, glow: 0, bend: 0, tw: 0 }); if (!first && o.m !== s.m) o.tw = 1; o.m = s.m; o.root = s.root; });
+      if (!first) HP.retune = 1;
+    }
+  }
+  function harpToggle() {
+    if (!started || !eng || !eng.harpPluck) return;
+    HP.on = !HP.on;
+    if (HP.on) { if (MB.on) marbleToggle(); if (DK.on) deckToggle(); harpSync(); eng.harpPrewarm(); HP.s.forEach((o, i) => setTimeout(() => { o.amp = 5; o.glow = .8; }, i * 40)); }
+    else { HP.ptr.clear(); }
+    $('harp').classList.toggle('on', HP.on); $('harp').setAttribute('aria-pressed', HP.on);
+    toast(HP.on ? '≋ Harp · strum across the strings' : '≋ Harp away'); haptic(HP.on ? 'hard' : 'soft');
+  }
+  $('harp').addEventListener('click', harpToggle);
+  function harpPluck(i, vel, y, x) {
+    const G = harpGeo(), o = HP.s[i]; if (!o) return;
+    const along = clampN((y - G.top) / (G.bot - G.top), 0, 1), pos = .06 + .44 * (1 - Math.abs(along * 2 - 1)); // ends bright, middle warm
+    eng.harpPluck(i, vel, G.xs(i) / W, pos);
+    o.amp = Math.min(10, 3.5 + vel * 6.5); o.glow = 1; o.py = along; o.ph = 0;
+    for (let k = 0; k < 5 + vel * 6; k++) { const a = Math.random() * 7, sp = 30 + Math.random() * 140 * vel; HP.sparks.push({ x: G.xs(i), y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 30, life: 1, c: o.root ? 2 : (i & 1) }); }
+    if (HP.sparks.length > 260) HP.sparks.splice(0, 60);
+    const now = performance.now(); if (Hap.on && canVibrate && now - HP.lastVib > 28) { HP.lastVib = now; try { navigator.vibrate(o.root ? 9 : 5); } catch (e) {} }
+  }
+  function harpDown(e) {
+    harpSync(); const G = harpGeo(), x = e.clientX, y = e.clientY;
+    if (y < G.top - 30 || y > G.bot + 30) return false;
+    const i = clampN(Math.round((x - G.x0) / G.sp), 0, G.n - 1), p = { x, y, t: performance.now(), last: {} };
+    if (Math.abs(x - G.xs(i)) < G.sp * .42) { harpPluck(i, .72, y, x); p.last[i] = p.t; }
+    HP.ptr.set(e.pointerId, p); try { $('pad').setPointerCapture(e.pointerId); } catch (er) {}
+    if (!harpDown.told) { harpDown.told = 1; setTimeout(() => toast('Swipe across for a glissando'), 1400); }
+    return true;
+  }
+  function harpMove(e) {
+    const p = HP.ptr.get(e.pointerId); if (!p) return false;
+    const G = harpGeo(), x = e.clientX, y = e.clientY, now = performance.now(), dt = Math.max(4, now - p.t), speed = Math.hypot(x - p.x, y - p.y) / dt;
+    const vel = clampN(.38 + speed * .28, .3, 1), lo = Math.min(p.x, x), hi = Math.max(p.x, x), dir = x > p.x ? 1 : -1, hits = [];
+    for (let i = 0; i < G.n; i++) { const sx = G.xs(i); if (sx > lo && sx <= hi && (!p.last[i] || now - p.last[i] > 70)) hits.push(i); }
+    if (dir < 0) hits.reverse();
+    hits.forEach(i => { const k = (G.xs(i) - p.x) / ((x - p.x) || 1); harpPluck(i, vel, p.y + (y - p.y) * k, G.xs(i)); p.last[i] = now; });
+    p.x = x; p.y = y; p.t = now; return true;
+  }
+  function harpUp(e) { return HP.ptr.delete(e.pointerId); }
+  function drawHarp(dt, c1, c2, c3) {
+    HP.vis += ((HP.on ? 1 : 0) - HP.vis) * Math.min(1, dt * 6);
+    for (let i = HP.sparks.length - 1; i >= 0; i--) { const s = HP.sparks[i]; s.x += s.vx * dt; s.y += s.vy * dt; s.vy += 160 * dt; s.life -= dt * 1.6; if (s.life <= 0) { HP.sparks.splice(i, 1); continue; } g2.fillStyle = hsa(s.c === 2 ? c3 : s.c ? c2 : c1, s.life * .85, 10); g2.beginPath(); g2.arc(s.x, s.y, 1 + s.life * 1.6, 0, 7); g2.fill(); }
+    if (HP.vis < .02) return;
+    harpSync();
+    const G = harpGeo(), L = G.bot - G.top, now = performance.now(), V0 = HP.vis;
+    HP.retune *= Math.pow(.05, dt);
+    // frame: soft top & bottom rails
+    [G.top, G.bot].forEach((yy, k) => { const lg = g2.createLinearGradient(G.x0 - 20, 0, G.xs(G.n - 1) + 20, 0); lg.addColorStop(0, 'rgba(0,0,0,0)'); lg.addColorStop(.5, hsa(k ? c2 : c1, .35 * V0 + HP.retune * .3)); lg.addColorStop(1, 'rgba(0,0,0,0)'); g2.strokeStyle = lg; g2.lineWidth = 2; g2.beginPath(); g2.moveTo(G.x0 - 20, yy); g2.lineTo(G.xs(G.n - 1) + 20, yy); g2.stroke(); });
+    g2.lineCap = 'round';
+    for (let i = 0; i < G.n; i++) {
+      const o = HP.s[i]; if (!o) continue;
+      const sx = G.xs(i), k = i / (G.n - 1), col = o.root ? c3 : [lerpH(c2[0], c1[0], k), lerp(c2[1], c1[1], k), lerp(c2[2], c1[2], k)];
+      o.amp *= Math.pow(.18 - k * .1, dt); o.glow *= Math.pow(.12, dt); o.tw *= Math.pow(.08, dt); o.ph += dt * (13 + k * 9);
+      // finger nearby → the string leans into it (pushed before it snaps)
+      let bx = 0, by = .5; HP.ptr.forEach(p => { const d = p.x - sx; if (Math.abs(d) < G.sp * .5 && p.y > G.top && p.y < G.bot) { const f = 1 - Math.abs(d) / (G.sp * .5); if (Math.abs(d * f) > Math.abs(bx)) { bx = d * f * .8; by = (p.y - G.top) / L; } } });
+      const amp = o.amp * Math.cos(o.ph * 6.283) + o.tw * 2.5 * Math.sin(now / 40 + i), w = (.9 + (1 - k) * 1.3) * (o.root ? 1.2 : 1);
+      const seg = 22, path = () => { g2.beginPath(); for (let j = 0; j <= seg; j++) { const s = j / seg, yy = G.top + s * L, bend = bx * (s < by ? s / by : (1 - s) / (1 - by)); const xx = sx + amp * Math.sin(Math.PI * s) + bend; j ? g2.lineTo(xx, yy) : g2.moveTo(xx, yy); } };
+      // glow halo
+      if (o.glow > .05 || bx) { g2.strokeStyle = hsa(col, (.03 + o.glow * .12) * V0); g2.lineWidth = w + 3 + o.glow * 5; path(); g2.stroke(); }
+      g2.strokeStyle = hsa(col, (.32 + o.glow * .5 + V.bass * .1) * V0, 4 + o.glow * 10); g2.lineWidth = w; path(); g2.stroke();
+      // tuning pegs
+      g2.fillStyle = hsa(col, (.6 + o.glow * .4) * V0, 8); g2.beginPath(); g2.arc(sx, G.top, 2.4 + o.tw * 3, 0, 7); g2.arc(sx, G.bot, 2.4, 0, 7); g2.fill();
+    }
+  }
+  window.__harp = { toggle: harpToggle, HP, geo: () => harpGeo() };
+
   // ---------- Ghost Hunt: theremin ghosts drift through the glow; tap one to burst it into a haunted organ chord ----------
   // every 5th catch summons the Witching Hour (bell tolls, a pumpkin/poison palette, a swarm of ghosts). Instrumental only.
   const today = new Date(), HALLOWEEN = today.getMonth() === 9 && today.getDate() >= 24;
@@ -585,11 +669,11 @@
     if (!eng || !eng.cameoTap || CM.list.length) return null;
     if (!kind) { const f = (eng.g.famIds || []).filter(x => x && MM.CAMEOS[x]); kind = f.length ? f[Math.random() < .62 ? 0 : f.length - 1] : CMK[Math.floor(Math.random() * CMK.length)]; }
     const mv = CMOVE[kind], fromL = Math.random() < .5, dir = fromL ? 1 : -1, s = (W > 600 ? 48 : 40) * (mv === 'drive' ? 1.2 : mv === 'soar' ? 1.05 : 1);
-    const floor = Math.min(H * .8, H - 196 - s * .4), /* feet just above the controls */ spd = { run: 120, drive: 150, hop: 70, bounce: 70, walk: 46, strut: 56, float: 34, swim: 40, soar: 70, fly: 64, drift: 30 }[mv] || 40;
+    const floor = Math.min(H * .8, H - 196 - s * .4, $('controls').getBoundingClientRect().top - 10 - s * .4), /* feet just above the controls */ spd = { run: 120, drive: 150, hop: 70, bounce: 70, walk: 46, strut: 56, float: 34, swim: 40, soar: 70, fly: 64, drift: 30 }[mv] || 40;
     const c = { kind, mv, dir, s, t: 0, a: 0, dead: 0, happy: 0, ph: Math.random() * 7, life: 15 + Math.random() * 4, nextIdle: 0, gone: 0,
       x: fromL ? -s * 2 : W + s * 2, y: floor - s * .55, vx: dir * spd * (W > 600 ? 1.5 : 1), vy: 0, floor, base: 0 };
     if (mv === 'hang') { c.x = W * (.2 + Math.random() * .6); c.y = -s * 2; c.vx = 0; c.base = H * (.16 + Math.random() * .14); }
-    else if (mv === 'rise') { c.x = W * (.15 + Math.random() * .7); c.y = H * .78; c.vx = dir * 8; c.base = H * .78; }
+    else if (mv === 'rise') { c.x = W * (.15 + Math.random() * .7); c.y = c.base = Math.min(H * .78, floor - s * .3); c.vx = dir * 8; }
     else if (mv === 'swim' || mv === 'fly' || mv === 'drift') c.y = c.base = H * (.16 + Math.random() * .3);
     else if (mv === 'soar') c.y = c.base = H * (.12 + Math.random() * .16);
     else if (mv === 'drive') c.y = c.floor - s * .35;
@@ -882,6 +966,7 @@
     if (!SC.ready) return toast('◎ Scratch Deck is warming up…');
     if (DK.hold) deckRelease(true);
     DK.on = !DK.on;
+    if (DK.on && HP.on) harpToggle();
     $('deck').classList.toggle('on', DK.on); $('deck').setAttribute('aria-pressed', DK.on);
     if (DK.on) { SC.needle(); SC.crackle(true); DK.arm = 0; DK.flash = 1; toast('◎ Scratch Deck · drag the record · fling back to rewind · tap to stop & drop'); haptic('hard'); }
     else { SC.crackle(false); if (DK.mode === 'live') { SC.grab(); deckRate(0, .28); deckDrop('⏻ power down… back on the one', 1.1); } toast('⏻ Power down… back on the one'); haptic('soft'); }
@@ -1140,6 +1225,7 @@
     drawStars(dt, cx, cy, R, c1, c2, c3, now);
     drawDeck(dt, c1, c2, c3, bg);
     const orbR = DK.vis > .5 ? deckGeo().r * 1.1 / 1.12 : R; marbleStep(dt, cx, cy, orbR); drawMarbles(dt, cx, cy, R, c1, c2, c3);
+    drawHarp(dt, c1, c2, c3);
     drawRibbon(dt, c1, c2, c3);
     if (V.flash > .02) { g2.fillStyle = hsa(c1, V.flash * .06, -8); g2.fillRect(0, 0, W, H); }
   }
