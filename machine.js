@@ -184,7 +184,7 @@
       const lab = document.createElement('label'); lab.setAttribute('data-hap', ''); lab.setAttribute('aria-hidden', 'true'); lab.style.cssText = 'position:absolute;inset:0;border-radius:inherit;touch-action:manipulation';
       const inp = document.createElement('input'); inp.type = 'checkbox'; inp.style.cssText = 'position:absolute;width:1px;height:1px;margin:0;visibility:hidden'; inp.addEventListener('click', e => e.stopPropagation()); lab.appendChild(inp); el.appendChild(lab);
     };
-    ['play', 'new', 'deck', 'harp', 'rec', 'wav'].forEach(id => { if (isIOS) mk($(id)); });
+    ['play', 'new', 'deck', 'harp', 'mbox', 'rec', 'wav'].forEach(id => { if (isIOS) mk($(id)); });
     const pad = $('pad'); pad.setAttribute('data-hap', ''); pad.querySelector('input').addEventListener('click', e => e.stopPropagation());
   })();
   window.__hap = Hap;
@@ -247,6 +247,7 @@
     else if (e.key === 'm' || e.key === 'M') marbleToggle();
     else if (e.key === 's' || e.key === 'S') deckToggle();
     else if (e.key === 'h' || e.key === 'H') harpToggle();
+    else if (e.key === 'b' || e.key === 'B') boxToggle();
   });
 
   // tap the glow: strike a note in the current key (chord-aware), with a ripple and (native) haptic.
@@ -268,6 +269,7 @@
     if (!started || !playing || !eng) return;
     const gh = ghostHit(e.clientX, e.clientY); if (gh) { ghostCatch(gh); return; }
     const cm = cameoHit(e.clientX, e.clientY); if (cm) { cameoTap(cm); return; }
+    if (BX.on) { if (boxDown(e)) return; }
     if (HP.on) { if (harpDown(e)) return; }
     if (deckHit(e.clientX, e.clientY)) { if (!DK.hold) deckGrab(e); if (!isIOS) haptic('soft'); return; }
     if (MB.on) { if (!MB.hold) marbleGrab(e); if (!isIOS) haptic('soft'); return; }
@@ -280,6 +282,7 @@
     clearTimeout(GL.hold); GL.hold = setTimeout(() => { if (GL.id !== null) glideBegin(GL.x0, GL.y0); }, 200);
   });
   $('pad').addEventListener('pointermove', e => {
+    if (BX.hold && e.pointerId === BX.hold.id) { boxMove(e); return; }
     if (HP.ptr.size && harpMove(e)) return;
     if (DK.hold && e.pointerId === DK.hold.id) { deckMove(e); return; }
     if (MB.hold && e.pointerId === MB.hold.id) { const b = MB.hold.b; b.x = e.clientX; b.y = e.clientY; b.samp.push({ x: b.x, y: b.y, t: performance.now() }); if (b.samp.length > 12) b.samp.shift(); return; }
@@ -294,7 +297,7 @@
       if (Hap.on && canVibrate && now - GL.lastVib > 55) { GL.lastVib = now; try { navigator.vibrate(5); } catch (er) {} }
     }
   });
-  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => $('pad').addEventListener(ev, e => { harpUp(e); if (DK.hold && e.pointerId === DK.hold.id) deckRelease(ev === 'pointercancel'); if (MB.hold && e.pointerId === MB.hold.id) marbleRelease(); if (e.pointerId === GL.id) glideStop(); }));
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => $('pad').addEventListener(ev, e => { boxUp(e); harpUp(e); if (DK.hold && e.pointerId === DK.hold.id) deckRelease(ev === 'pointercancel'); if (MB.hold && e.pointerId === MB.hold.id) marbleRelease(); if (e.pointerId === GL.id) glideStop(); }));
   addEventListener('blur', glideStop);
   document.addEventListener('visibilitychange', () => { if (document.hidden) { glideStop(); ghostsHush(); cameosHush(); } });
 
@@ -376,6 +379,7 @@
     if (!started || !eng || !eng.marbleHit) return;
     MB.on = !MB.on;
     if (MB.on && HP.on) harpToggle();
+    if (MB.on && BX.on) boxToggle();
     if (MB.on && !MB.tiltAsked) { // iOS 13+: motion permission must be requested inside the tap
       MB.tiltAsked = 1;
       try {
@@ -510,7 +514,7 @@
   function harpToggle() {
     if (!started || !eng || !eng.harpPluck) return;
     HP.on = !HP.on;
-    if (HP.on) { if (MB.on) marbleToggle(); if (DK.on) deckToggle(); harpSync(); eng.harpPrewarm(); HP.s.forEach((o, i) => setTimeout(() => { o.amp = 5; o.glow = .8; }, i * 40)); }
+    if (HP.on) { if (MB.on) marbleToggle(); if (DK.on) deckToggle(); if (BX.on) boxToggle(); harpSync(); eng.harpPrewarm(); HP.s.forEach((o, i) => setTimeout(() => { o.amp = 5; o.glow = .8; }, i * 40)); }
     else { HP.ptr.clear(); }
     $('harp').classList.toggle('on', HP.on); $('harp').setAttribute('aria-pressed', HP.on);
     toast(HP.on ? '≋ Harp · strum across the strings' : '≋ Harp away'); haptic(HP.on ? 'hard' : 'soft');
@@ -570,6 +574,170 @@
     }
   }
   window.__harp = { toggle: harpToggle, HP, geo: () => harpGeo() };
+
+  // ---------- Music Box ♫: a glowing pinned cylinder on the orb — crank it; steel pins pluck metallic tines tuned to the current chord ----------
+  // crank speed = playback rate of an ornamental in-key melody (slow = lullaby, fast = sparkle); reverse plays backwards. Instrumental only.
+  const BX = { on: false, vis: 0, ang: 0, spin: 0, hold: null, step: 0, sparks: [], tines: [], sig: '', retune: 0, lastVib: 0, pins: [] };
+  V.box = BX;
+  function boxGeo() {
+    const y = H * (W < 600 ? .22 : .34), r = Math.max(52, Math.min(W * .18, H * .095, 110));
+    return { x: W / 2, y, r, tw: r * 1.55, th: r * .42 };
+  }
+  function boxHit(x, y) { if (BX.vis < .4) return false; const g = boxGeo(); return Math.hypot(x - g.x, y - g.y) < g.r * 1.35; }
+  function boxSync() {
+    if (!eng || !eng.boxTines) return;
+    const st = eng.boxTines(), mel = eng.boxMelody(), sig = st.map(s => s.m).join(',') + '|' + mel.join(',');
+    if (sig !== BX.sig) {
+      const first = !BX.sig; BX.sig = sig;
+      st.forEach((s, i) => { const o = BX.tines[i] || (BX.tines[i] = { amp: 0, ph: 0, glow: 0, tw: 0 }); if (!first && o.m !== s.m) o.tw = 1; o.m = s.m; o.root = s.root; });
+      BX.tines.length = st.length;
+      // pins sit around the cylinder, one per melody step
+      BX.pins = mel.map((ti, i) => ({ i, ti, glow: 0 }));
+      if (!first) BX.retune = 1;
+    }
+  }
+  function boxToggle() {
+    if (!started || !eng || !eng.boxPluck) return;
+    BX.on = !BX.on;
+    if (BX.on) { if (HP.on) harpToggle(); if (MB.on) marbleToggle(); if (DK.on) deckToggle(); boxSync(); eng.boxPrewarm(); BX.spin = 0; BX.tines.forEach((o, i) => setTimeout(() => { o.amp = 4; o.glow = .7; }, i * 35)); }
+    else { BX.hold = null; BX.spin = 0; }
+    $('mbox').classList.toggle('on', BX.on); $('mbox').setAttribute('aria-pressed', BX.on);
+    toast(BX.on ? '♫ Music Box · crank the glowing cylinder — slow = lullaby, fast = sparkle, reverse = backwards' : '♫ Music Box away');
+    haptic(BX.on ? 'hard' : 'soft');
+  }
+  $('mbox').addEventListener('click', boxToggle);
+  function boxPluckAt(step, vel) {
+    boxSync(); const pin = BX.pins[step]; if (!pin || pin.ti < 0) return;
+    const o = BX.tines[pin.ti]; if (!o) return;
+    const G = boxGeo(), u = pin.ti / Math.max(1, BX.tines.length - 1);
+    eng.boxPluck(pin.ti, vel, u);
+    o.amp = Math.min(9, 3 + vel * 6); o.glow = 1; o.ph = 0; pin.glow = 1;
+    const a = BX.ang + (step / Math.max(1, BX.pins.length)) * Math.PI * 2;
+    const px = G.x + Math.cos(a) * G.r * .82, py = G.y + Math.sin(a) * G.r * .55;
+    for (let k = 0; k < 4 + vel * 5; k++) { const th = Math.random() * 7, sp = 40 + Math.random() * 120 * vel; BX.sparks.push({ x: px, y: py, vx: Math.cos(th) * sp, vy: Math.sin(th) * sp - 40, life: 1, c: o.root ? 2 : (pin.ti & 1) }); }
+    if (BX.sparks.length > 220) BX.sparks.splice(0, 50);
+    const now = performance.now();
+    if (Hap.on && canVibrate && now - BX.lastVib > 26) { BX.lastVib = now; try { navigator.vibrate(o.root ? 8 : 4); } catch (e) {} }
+    else if (Hap.on && isIOS && now - BX.lastVib > 55) { BX.lastVib = now; iosTick(); }
+  }
+  function boxAdvance(da) {
+    if (!BX.pins.length) return;
+    const N = BX.pins.length, prev = BX.step;
+    BX.ang += da;
+    // unwrap step from absolute angle so reverse works cleanly
+    const raw = (BX.ang / (Math.PI * 2)) * N;
+    const next = Math.floor(raw);
+    if (next === prev) { BX.step = next; return; }
+    const dir = next > prev ? 1 : -1;
+    const vel = clamp(.25 + Math.abs(da) * 4.2, .2, 1);
+    let s = prev;
+    while (s !== next) { s += dir; boxPluckAt(((s % N) + N) % N, vel); }
+    BX.step = next;
+  }
+  function boxDown(e) {
+    if (!BX.on || !boxHit(e.clientX, e.clientY)) return false;
+    boxSync();
+    const G = boxGeo(), a = Math.atan2((e.clientY - G.y) / .55, e.clientX - G.x);
+    BX.hold = { id: e.pointerId, a, t: performance.now(), moved: 0 };
+    BX.spin = 0;
+    try { $('pad').setPointerCapture(e.pointerId); } catch (er) {}
+    if (!boxDown.told) { boxDown.told = 1; setTimeout(() => toast('Crank faster for a sparkle run · reverse for backwards'), 1200); }
+    return true;
+  }
+  function boxMove(e) {
+    const H0 = BX.hold; if (!H0 || e.pointerId !== H0.id) return false;
+    const G = boxGeo(), a = Math.atan2((e.clientY - G.y) / .55, e.clientX - G.x);
+    let da = a - H0.a; da = ((da + Math.PI * 3) % (Math.PI * 2)) - Math.PI; H0.a = a;
+    const now = performance.now(), dt = Math.max(8, now - H0.t) / 1000; H0.t = now; H0.moved += Math.abs(da);
+    BX.spin = da / dt; // rad/s for free-spin
+    boxAdvance(da);
+    return true;
+  }
+  function boxUp(e) {
+    if (!BX.hold || e.pointerId !== BX.hold.id) return;
+    // keep a little free-spin (friction) — tactile and fun
+    if (Math.abs(BX.spin) > 1.2) BX.spin = clamp(BX.spin, -14, 14); else BX.spin = 0;
+    BX.hold = null;
+  }
+  function drawBox(dt, c1, c2, c3) {
+    BX.vis += ((BX.on ? 1 : 0) - BX.vis) * Math.min(1, dt * 5.5);
+    // free-spin with friction when not held
+    if (!BX.hold && Math.abs(BX.spin) > .05 && BX.on) {
+      const da = BX.spin * dt; boxAdvance(da);
+      BX.spin *= Math.pow(.08, dt); // settle
+    } else if (!BX.on) BX.spin = 0;
+    for (let i = BX.sparks.length - 1; i >= 0; i--) {
+      const s = BX.sparks[i]; s.x += s.vx * dt; s.y += s.vy * dt; s.vy += 180 * dt; s.life -= dt * 1.7;
+      if (s.life <= 0) { BX.sparks.splice(i, 1); continue; }
+      g2.fillStyle = hsa(s.c === 2 ? c3 : s.c ? c2 : c1, s.life * .9, 8); g2.beginPath(); g2.arc(s.x, s.y, 1.2 + s.life * 1.8, 0, 7); g2.fill();
+    }
+    if (BX.vis < .02) return;
+    boxSync();
+    const G = boxGeo(), V0 = BX.vis, now = performance.now();
+    BX.retune *= Math.pow(.05, dt);
+    // soft pedestal glow under the cylinder
+    const ped = g2.createRadialGradient(G.x, G.y + G.r * .2, 0, G.x, G.y, G.r * 1.6);
+    ped.addColorStop(0, hsa(c2, .12 * V0 + BX.retune * .15)); ped.addColorStop(1, 'rgba(0,0,0,0)');
+    g2.fillStyle = ped; g2.beginPath(); g2.ellipse(G.x, G.y + 4, G.r * 1.15, G.r * .55, 0, 0, 7); g2.fill();
+
+    // cylinder body (perspective ellipse stack)
+    g2.save();
+    const layers = 7;
+    for (let k = 0; k < layers; k++) {
+      const t = k / (layers - 1), yy = G.y - G.th * .5 + t * G.th, rx = G.r * (.92 + .08 * Math.sin(t * Math.PI)), ry = G.r * .38;
+      const col = [lerpH(c1[0], c2[0], t), lerp(c1[1], c2[1], t), lerp(c1[2], c2[2], t)];
+      g2.strokeStyle = hsa(col, (.22 + (k === 0 || k === layers - 1 ? .2 : 0) + V.bass * .08) * V0, 2);
+      g2.lineWidth = k === 0 || k === layers - 1 ? 2.2 : 1.2;
+      g2.beginPath(); g2.ellipse(G.x, yy, rx, ry, 0, 0, 7); g2.stroke();
+      if (k === 0) { g2.fillStyle = hsa(c1, .08 * V0); g2.fill(); }
+    }
+    // axle
+    g2.strokeStyle = hsa(c3, .55 * V0, 4); g2.lineWidth = 2;
+    g2.beginPath(); g2.moveTo(G.x - G.r * 1.05, G.y); g2.lineTo(G.x + G.r * 1.05, G.y); g2.stroke();
+    g2.fillStyle = hsa(c3, .7 * V0, 6); g2.beginPath(); g2.arc(G.x - G.r * 1.05, G.y, 3.2, 0, 7); g2.arc(G.x + G.r * 1.05, G.y, 3.2, 0, 7); g2.fill();
+
+    // pins around the cylinder
+    const N = BX.pins.length || eng.BOX_MEL || 16;
+    for (let i = 0; i < N; i++) {
+      const pin = BX.pins[i] || { ti: -1, glow: 0 };
+      pin.glow *= Math.pow(.12, dt);
+      const a = BX.ang + (i / N) * Math.PI * 2;
+      // hide pins on the back half a bit (perspective)
+      const depth = Math.sin(a), front = depth > -0.15;
+      if (!front && pin.ti < 0) continue;
+      const px = G.x + Math.cos(a) * G.r * .88, py = G.y + Math.sin(a) * G.r * .42;
+      const len = 6 + (pin.ti >= 0 ? 4 : 0) + pin.glow * 5;
+      const col = pin.ti >= 0 && BX.tines[pin.ti] && BX.tines[pin.ti].root ? c3 : (i & 1 ? c2 : c1);
+      g2.strokeStyle = hsa(col, (.35 + pin.glow * .5) * V0 * (front ? 1 : .35), 4); g2.lineWidth = 1.6 + pin.glow * 1.5;
+      g2.beginPath(); g2.moveTo(px, py); g2.lineTo(px + Math.cos(a) * len, py + Math.sin(a) * len * .55); g2.stroke();
+      g2.fillStyle = hsa(col, (.55 + pin.glow * .45) * V0 * (front ? 1 : .3), 8);
+      g2.beginPath(); g2.arc(px + Math.cos(a) * len, py + Math.sin(a) * len * .55, 2 + pin.glow * 2, 0, 7); g2.fill();
+    }
+    g2.restore();
+
+    // comb of glowing tines below the cylinder
+    const nT = BX.tines.length || (eng && eng.BOX_N) || 8;
+    const x0 = G.x - G.tw * .5, gap = G.tw / Math.max(1, nT - 1), y0 = G.y + G.r * .72;
+    for (let i = 0; i < nT; i++) {
+      const o = BX.tines[i]; if (!o) continue;
+      o.amp *= Math.pow(.2, dt); o.glow *= Math.pow(.14, dt); o.tw *= Math.pow(.08, dt); o.ph += dt * (14 + i);
+      const col = o.root ? c3 : [lerpH(c2[0], c1[0], i / (nT - 1)), lerp(c2[1], c1[1], i / (nT - 1)), lerp(c2[2], c1[2], i / (nT - 1))];
+      const xx = x0 + i * gap, vib = o.amp * Math.sin(o.ph * 6.283) + o.tw * 2 * Math.sin(now / 35 + i);
+      const len = 18 + (nT - 1 - i) * 2.2 + o.glow * 6;
+      // glow halo
+      if (o.glow > .05) { g2.strokeStyle = hsa(col, (.05 + o.glow * .14) * V0); g2.lineWidth = 4 + o.glow * 5; g2.beginPath(); g2.moveTo(xx, y0); g2.lineTo(xx + vib, y0 + len); g2.stroke(); }
+      g2.strokeStyle = hsa(col, (.4 + o.glow * .45) * V0, 4); g2.lineWidth = 1.4 + (o.root ? .4 : 0); g2.lineCap = 'round';
+      g2.beginPath(); g2.moveTo(xx, y0); g2.lineTo(xx + vib, y0 + len); g2.stroke();
+      g2.fillStyle = hsa(col, (.65 + o.glow * .35) * V0, 6); g2.beginPath(); g2.arc(xx, y0, 2.2 + o.tw * 2, 0, 7); g2.fill();
+    }
+    // crank hint ring when idle
+    if (BX.on && !BX.hold && Math.abs(BX.spin) < .2) {
+      const pulse = .5 + .5 * Math.sin(now / 400);
+      g2.strokeStyle = hsa(c3, .12 * V0 * pulse, 4); g2.lineWidth = 1.5; g2.setLineDash([4, 6]);
+      g2.beginPath(); g2.ellipse(G.x, G.y, G.r * 1.18, G.r * .55, 0, 0, 7); g2.stroke(); g2.setLineDash([]);
+    }
+  }
+  window.__box = { toggle: boxToggle, BX, geo: () => boxGeo() };
 
   // ---------- Ghost Hunt: theremin ghosts drift through the glow; tap one to burst it into a haunted organ chord ----------
   // every 5th catch summons the Witching Hour (bell tolls, a pumpkin/poison palette, a swarm of ghosts). Instrumental only.
@@ -967,6 +1135,7 @@
     if (DK.hold) deckRelease(true);
     DK.on = !DK.on;
     if (DK.on && HP.on) harpToggle();
+    if (DK.on && BX.on) boxToggle();
     $('deck').classList.toggle('on', DK.on); $('deck').setAttribute('aria-pressed', DK.on);
     if (DK.on) { SC.needle(); SC.crackle(true); DK.arm = 0; DK.flash = 1; toast('◎ Scratch Deck · drag the record · fling back to rewind · tap to stop & drop'); haptic('hard'); }
     else { SC.crackle(false); if (DK.mode === 'live') { SC.grab(); deckRate(0, .28); deckDrop('⏻ power down… back on the one', 1.1); } toast('⏻ Power down… back on the one'); haptic('soft'); }
@@ -1226,6 +1395,7 @@
     drawDeck(dt, c1, c2, c3, bg);
     const orbR = DK.vis > .5 ? deckGeo().r * 1.1 / 1.12 : R; marbleStep(dt, cx, cy, orbR); drawMarbles(dt, cx, cy, R, c1, c2, c3);
     drawHarp(dt, c1, c2, c3);
+    drawBox(dt, c1, c2, c3);
     drawRibbon(dt, c1, c2, c3);
     if (V.flash > .02) { g2.fillStyle = hsa(c1, V.flash * .06, -8); g2.fillRect(0, 0, W, H); }
   }

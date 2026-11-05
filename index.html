@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Endless Music Machine</title>
-<meta name="emm-build" content="2026-11-04-harp-strings">
+<meta name="emm-build" content="2026-11-05-music-box">
 <meta name="theme-color" content="#07080c">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -46,7 +46,7 @@ button,.chipbtn{position:relative;font:inherit;font-size:14px;font-weight:620;le
 button:hover,.chipbtn:hover{border-color:color-mix(in srgb,var(--c1) 70%,transparent)}
 button:active,.chipbtn:active{transform:scale(.965)}
 button.primary{flex:1.1;max-width:180px;background:linear-gradient(100deg,var(--c1),var(--c2));border:0;color:var(--on);font-weight:750;box-shadow:0 8px 30px -8px var(--c1)}
-#new{flex:1;max-width:200px}.row.toys{gap:8px}.row.toys button{flex:1;max-width:140px;min-height:48px;padding:0 10px;font-size:13.5px}@media (max-width:400px){.row.toys{gap:6px}.row.toys button{padding:0 6px;font-size:12.5px}}@media (max-width:520px){.row:not(.small):not(.toys) button{padding:0 12px}.row:not(.small):not(.toys){gap:7px}.row:not(.small):not(.toys) button{font-size:13px}}@media (max-width:400px){.row:not(.small):not(.toys) button{padding:0 9px;font-size:12.5px}}
+#new{flex:1;max-width:200px}.row.toys{gap:6px;flex-wrap:wrap}.row.toys button{flex:1;max-width:120px;min-height:48px;padding:0 8px;font-size:12.5px}@media (max-width:400px){.row.toys{gap:5px}.row.toys button{padding:0 5px;font-size:11.5px;min-height:44px}}@media (max-width:520px){.row:not(.small):not(.toys) button{padding:0 12px}.row:not(.small):not(.toys){gap:7px}.row:not(.small):not(.toys) button{font-size:13px}}@media (max-width:400px){.row:not(.small):not(.toys) button{padding:0 9px;font-size:12.5px}}
 .row.small{gap:8px}
 .row.small button,.row.small .chipbtn{min-height:42px;font-size:12.5px;padding:0 14px;color:var(--dim)}
 button.loop.on{background:linear-gradient(100deg,var(--c3),var(--c1));border-color:transparent;color:var(--on);box-shadow:0 0 22px -4px var(--c3)}
@@ -99,13 +99,14 @@ input[type=range]::-moz-range-thumb{width:26px;height:26px;border:0;border-radiu
       <button id="marb" class="loop" aria-pressed="false">◉ Marbles</button>
       <button id="deck" class="loop" aria-pressed="false">◎ Scratch</button>
       <button id="harp" class="loop" aria-pressed="false">≋ Harp</button>
+      <button id="mbox" class="loop" aria-pressed="false">♫ Box</button>
     </div>
     <div class="row small">
       <label class="chipbtn" id="hapL"><span>Haptics</span><input id="hap" type="checkbox" switch></label>
       <button id="rec" class="rec">● Clip</button>
       <button id="wav">↓ WAV</button>
     </div>
-    <div id="hint">Tap the glow to play a note · hold &amp; drag for the Glide Ribbon · ✦ Loop plants looping stars · ◉ Marbles bounce on a floor-xylophone (tilt to steer) · ≋ Harp: strum the strings · ◎ Scratch turns the glow into a vinyl of the live mix — drag to scratch, fling back to rewind · tap ghosts 👻 &amp; genre cameos 🐾 · <span class="kbd">Space play/pause · N new genre · M marbles · S scratch · H harp ·</span> instrumental</div>
+    <div id="hint">Tap the glow to play a note · hold &amp; drag for the Glide Ribbon · ✦ Loop plants looping stars · ◉ Marbles bounce on a floor-xylophone (tilt to steer) · ≋ Harp: strum the strings · ♫ Box: crank the pinned cylinder — slow = lullaby, fast = sparkle · ◎ Scratch turns the glow into a vinyl of the live mix — drag to scratch, fling back to rewind · tap ghosts 👻 &amp; genre cameos 🐾 · <span class="kbd">Space play/pause · N new genre · M marbles · S scratch · H harp · B music box ·</span> instrumental</div>
   </div>
 </div>
 <div id="start"><h1>Endless<br>Music<br>Machine</h1><p>Invented genres · never repeats · no vocals</p><div class="go"></div><label class="chipbtn" id="hapL0"><span>Haptics</span><input id="hap0" type="checkbox" switch></label></div>
@@ -117,6 +118,7 @@ input[type=range]::-moz-range-thumb{width:26px;height:26px;border:0;border-radiu
 <script src="cameo.js"></script>
 <script src="scratch.js"></script>
 <script src="harp.js?v=1104"></script>
-<script src="machine.js?v=1104"></script>
+<script src="box.js?v=1105"></script>
+<script src="machine.js?v=1105"></script>
 </body>
 </html>
